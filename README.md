@@ -1,6 +1,6 @@
 # Apple Loop Editor
 
-Apple Loop metadata editor for `.aif` and `.caf` files — this app only edits the **Apple Loop-specific metadata** (**Scale**, **Genre**, **Key**, **Type** (Loop / One-Shot) tags and **Instrument Descriptors**) already embedded in existing Apple Loops, without going through Logic Pro or the Apple Loops Utility. It does not add Apple Loop tagging to a regular audio file that isn't already an Apple Loop.
+Apple Loop metadata editor — this app edits any **Apple Loop-specific metadata** (**Scale**, **Genre**, **Key**, **Type** and **Instrument Descriptors**) already embedded in existing Apple Loops, without going through Logic Pro or GarageBand. It replaces Apple's discontinued Apple Loops Utility, which is no longer compatible with modern ARM64 architectures.
 
 ![AppleLoopEditor preview](Docs/screenshot.png)
 
