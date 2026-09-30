@@ -10,7 +10,7 @@ Apple Loop metadata editor — this app edits any **Apple Loop-specific metadata
 - Full **Instrument Descriptors** editing (category, subcategory, and attributes such as Single/Ensemble, Clean/Distorted, Acoustic/Electric, etc.)
 - **Suggestive Key/Mode analysis**: suggests a key and mode from the loop's embedded MIDI performance if present, or from audio analysis otherwise (FFT + Krumhansl-Schmuckler key-profile correlation) — purely indicative, never overwrites existing tags
 - **Batch** editing (multi-file selection)
-- Built-in audio playback/preview of the selected loop
+- Built-in audio playback/preview of the selected loop, using spacebar
 - Drag and drop of files or entire folders
 - Automatic container format detection (classic AIFF or CAF)
 
