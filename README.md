@@ -18,7 +18,9 @@ Apple Loop metadata editor — this app edits any **Apple Loop-specific metadata
 
 No Xcode needed: download the latest compiled build directly from the **[Releases](https://github.com/Creme74/AppleLoopEditor/releases/latest)** page, unzip it, and launch `AppleLoopEditor.app`.
 
-> **First launch:** since the app isn't signed with a paid Apple Developer account, macOS (Gatekeeper) will show a warning the first time you open it. Right-click (or Ctrl-click) `AppleLoopEditor.app` → **Open**, then confirm. This is only needed once.
+> **First launch:** since the app isn't signed with a paid Apple Developer account, macOS (Gatekeeper) will show a warning the first time you open it. This is only needed once.
+> - **macOS Ventura and earlier:** right-click (or Ctrl-click) `AppleLoopEditor.app` → **Open**, then confirm.
+> - **macOS Sequoia (15) and later:** the right-click shortcut no longer works. Go to **System Settings → Privacy & Security**, find the message about `AppleLoopEditor` being blocked, click **Open Anyway**, then confirm with your password.
 
 ## Build from source
 
