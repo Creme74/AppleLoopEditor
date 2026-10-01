@@ -128,11 +128,24 @@ public final class AppleLoopFile {
     /// Writes `edit` to `url`, then re-reads tags from the freshly written
     /// bytes so `self.tags` always reflects exactly what's on disk
     /// (including any normalization, e.g. lowercase 'key type').
-    public func apply(_ edit: AppleLoopTagEdit) throws {
+    ///
+    /// The write is atomic (temp file + rename on the same volume), so a
+    /// crash or power loss mid-write can never leave `url` truncated or
+    /// corrupted. When `keepBackup` is true (the default), the previous
+    /// file contents are copied to `<url>.bak` first, best-effort, before
+    /// the new data is written.
+    public func apply(_ edit: AppleLoopTagEdit, keepBackup: Bool = true) throws {
         guard !edit.isEmpty else { return }
         let newData = try dataApplying(edit)
+
+        if keepBackup {
+            let backupURL = url.appendingPathExtension("bak")
+            try? FileManager.default.removeItem(at: backupURL)
+            try? FileManager.default.copyItem(at: url, to: backupURL)
+        }
+
         do {
-            try newData.write(to: url)
+            try newData.write(to: url, options: .atomic)
         } catch {
             throw AppleLoopFileError.ioError(error.localizedDescription)
         }

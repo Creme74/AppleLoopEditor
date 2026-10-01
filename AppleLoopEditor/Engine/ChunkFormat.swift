@@ -88,7 +88,18 @@ enum ChunkParser {
                 }
                 let size = data.readUInt64BE(at: offset - data.startIndex + 4)
                 dataOffset = offset + 12
-                dataLength = Int(size)
+                if size == UInt64.max {
+                    // CAF spec: a chunk size of -1 (all 64 bits set) means
+                    // "this chunk's data runs to the end of the file" --
+                    // legal only for the file's last chunk (typically a
+                    // streamed 'data' chunk whose final size wasn't known
+                    // up front). UInt64.max doesn't fit in Int, so Int(size)
+                    // would trap here; compute the real remaining length
+                    // from the end of the buffer instead.
+                    dataLength = end - dataOffset
+                } else {
+                    dataLength = Int(size)
+                }
             case .aiff:
                 guard offset + 8 <= end else {
                     throw AppleLoopFileError.corruptChunkTable("truncated AIFF chunk size at offset \(offset)")

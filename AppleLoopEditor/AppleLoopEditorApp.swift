@@ -100,7 +100,14 @@ final class AudioFile: Identifiable, Hashable {
             subcategory: pendingSubcategory != file.tags.subcategory ? pendingSubcategory : nil,
             genre: pendingGenre != file.tags.genre ? pendingGenre : nil,
             descriptors: descriptorsChanged
+                // Keep the app's own vocabulary words in their canonical
+                // order, then append anything else the file already carried
+                // (tags from Logic/other tools outside this app's 18-word
+                // list) instead of silently dropping them. Those extra tags
+                // are never shown or editable in the UI, but any edit here
+                // must not erase them.
                 ? AppleLoopVocabulary.descriptors.filter { pendingDescriptors.contains($0) }
+                    + pendingDescriptors.subtracting(AppleLoopVocabulary.descriptors).sorted()
                 : nil,
             key: pendingKey != file.tags.key ? pendingKey : nil,
             mode: pendingMode != file.tags.mode ? pendingMode : nil,
