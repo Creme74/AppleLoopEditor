@@ -73,6 +73,44 @@ public enum AppleLoopVocabulary {
         return storage
     }
 
+    /// Same story as the categories, one level down: for many subcategories
+    /// the label shown in Logic's tagging UI is NOT the string Logic writes
+    /// to the file. Left as-is, a loop tagged here got e.g. "Hi-Hat" or
+    /// "Elec Piano" on disk, which Logic's Loop Browser doesn't recognise
+    /// (it only matches its own stored names), so the loop landed outside
+    /// its subcategory.
+    ///
+    /// The stored names below were read from the ~31,000 Apple-authored
+    /// loops installed with Logic Pro (every distinct category/subcategory
+    /// pair), and double-checked against loops tagged by Logic itself.
+    /// Display names missing from this table are written unchanged (they
+    /// are identical on disk: "Kick", "Snare", "Organ", "Piano"...).
+    public static let subcategoryStorageNameOverrides: [String: String] = [
+        "Beats": "Electronic Beats",
+        "Hi-Hat": "Hi-hat",
+        "Kits": "Drum Kit",
+        "Elec Bass": "Electric Bass",
+        "Elec Guitar": "Electric Guitar",
+        "Pedal Steel": "Pedal Steel Guitar",
+        "Elec Piano": "Electric Piano",
+        "Synths": "Synthesizer",
+        "Vibes": "Vibraphone",
+        "Vinyl": "Vinyl/Scratch",
+        "Impacts": "Impacts & Crashes",
+        "Sports": "Sports & Leisure",
+    ]
+
+    public static func storageName(forDisplaySubcategory display: String) -> String {
+        subcategoryStorageNameOverrides[display] ?? display
+    }
+
+    public static func displayName(forStorageSubcategory storage: String) -> String {
+        if let match = subcategoryStorageNameOverrides.first(where: { $0.value == storage }) {
+            return match.key
+        }
+        return storage
+    }
+
     public static let genres: [String] = [
         "Rock/Blues", "Electronic/Dance", "World/Ethnic", "Hip Hop", "Orchestral",
         "Cinematic/New Age", "Modern RnB", "Urban", "Electro House", "Hip Hop/RnB",

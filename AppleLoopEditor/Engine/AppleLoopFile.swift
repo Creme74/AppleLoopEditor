@@ -50,7 +50,8 @@ public final class AppleLoopFile {
             let storedCategory = pairs.value(for: AppleLoopMetadataKey.category) ?? ""
             let tags = AppleLoopTags(
                 category: storedCategory.isEmpty ? "" : AppleLoopVocabulary.displayName(forStorageCategory: storedCategory),
-                subcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? "",
+                subcategory: AppleLoopVocabulary.displayName(forStorageSubcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? ""),
+                storedSubcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? "",
                 genre: pairs.value(for: AppleLoopMetadataKey.genre) ?? "",
                 descriptors: splitCommaList(pairs.value(for: AppleLoopMetadataKey.descriptors)),
                 key: pairs.value(for: AppleLoopMetadataKey.keySignature) ?? "",
@@ -80,7 +81,8 @@ public final class AppleLoopFile {
 
             let tags = AppleLoopTags(
                 category: cate.category.isEmpty ? "" : AppleLoopVocabulary.displayName(forStorageCategory: cate.category),
-                subcategory: cate.subcategory,
+                subcategory: AppleLoopVocabulary.displayName(forStorageSubcategory: cate.subcategory),
+                storedSubcategory: cate.subcategory,
                 genre: cate.genre,
                 descriptors: cate.descriptors,
                 key: key,
@@ -197,7 +199,7 @@ public final class AppleLoopFile {
             pairs.set(AppleLoopMetadataKey.category, to: AppleLoopVocabulary.storageName(forDisplayCategory: category))
         }
         if let subcategory = edit.subcategory {
-            pairs.set(AppleLoopMetadataKey.subcategory, to: subcategory)
+            pairs.set(AppleLoopMetadataKey.subcategory, to: AppleLoopVocabulary.storageName(forDisplaySubcategory: subcategory))
         }
         if let genre = edit.genre {
             pairs.set(AppleLoopMetadataKey.genre, to: genre)
@@ -285,7 +287,7 @@ public final class AppleLoopFile {
                 cate.category = AppleLoopVocabulary.storageName(forDisplayCategory: category)
             }
             if let subcategory = edit.subcategory {
-                cate.subcategory = subcategory
+                cate.subcategory = AppleLoopVocabulary.storageName(forDisplaySubcategory: subcategory)
             }
             if let genre = edit.genre {
                 cate.genre = genre

@@ -63,6 +63,12 @@ final class AudioFile: Identifiable, Hashable {
 
     var pendingCategory: String
     var pendingSubcategory: String
+    /// Set when the user clicks a subcategory row, even if it's the one the
+    /// file already shows. It lets a loop tagged by an older version with a
+    /// name Logic doesn't use ("Hi-Hat", "Elec Piano"...) be fixed by simply
+    /// re-clicking its subcategory: the pending value equals the displayed
+    /// one, but not what's actually stored on disk.
+    var subcategoryTouched = false
     var pendingGenre: String
     var pendingDescriptors: Set<String>
     var pendingKey: String
@@ -84,9 +90,18 @@ final class AudioFile: Identifiable, Hashable {
         self.pendingIsOneShot = file.tags.isOneShot
     }
 
+    /// True when the pending subcategory must be (re)written: it differs from
+    /// what's shown, or the user re-picked it and the name on disk isn't the
+    /// one Logic uses.
+    private var subcategoryNeedsWrite: Bool {
+        if pendingSubcategory != file.tags.subcategory { return true }
+        return subcategoryTouched &&
+            AppleLoopVocabulary.storageName(forDisplaySubcategory: pendingSubcategory) != file.tags.storedSubcategory
+    }
+
     var hasChanges: Bool {
         pendingCategory != file.tags.category ||
-        pendingSubcategory != file.tags.subcategory ||
+        subcategoryNeedsWrite ||
         pendingGenre != file.tags.genre ||
         pendingDescriptors != Set(file.tags.descriptors) ||
         pendingKey != file.tags.key ||
@@ -101,7 +116,7 @@ final class AudioFile: Identifiable, Hashable {
         let becomingOneShot = pendingIsOneShot != file.tags.isOneShot && pendingIsOneShot
         return AppleLoopTagEdit(
             category: pendingCategory != file.tags.category ? pendingCategory : nil,
-            subcategory: pendingSubcategory != file.tags.subcategory ? pendingSubcategory : nil,
+            subcategory: subcategoryNeedsWrite ? pendingSubcategory : nil,
             genre: pendingGenre != file.tags.genre ? pendingGenre : nil,
             descriptors: descriptorsChanged
                 // Keep the app's own vocabulary words in their canonical
@@ -128,6 +143,7 @@ final class AudioFile: Identifiable, Hashable {
     func resetPendingToCurrentTags() {
         pendingCategory = file.tags.category
         pendingSubcategory = file.tags.subcategory
+        subcategoryTouched = false
         pendingGenre = file.tags.genre
         pendingDescriptors = Set(file.tags.descriptors)
         pendingKey = file.tags.key
@@ -1275,7 +1291,10 @@ struct AppleLoopEditorView: View {
 
     private func setSubcategory(_ newValue: String) {
         selectedSubcategory = newValue
-        for idx in activeIndices { files[idx].pendingSubcategory = newValue }
+        for idx in activeIndices {
+            files[idx].pendingSubcategory = newValue
+            files[idx].subcategoryTouched = true
+        }
         changeTick += 1
     }
 
