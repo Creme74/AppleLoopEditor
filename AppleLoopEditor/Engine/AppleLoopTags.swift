@@ -20,12 +20,6 @@ public struct AppleLoopTags: Equatable {
 
     public var isOneShot: Bool { beatCount == 0 }
 
-    /// Whether the file carries an embedded MIDI performance (a real
-    /// Standard MIDI File in the container's MIDI chunk: '.mid' in AIFF,
-    /// 'midi' in CAF) -- the notes that triggered a software-instrument
-    /// loop. Read-only information: never part of an edit.
-    public var hasMidi: Bool
-
     public var descriptorsJoined: String {
         descriptors.joined(separator: ", ")
     }
@@ -37,8 +31,7 @@ public struct AppleLoopTags: Equatable {
         descriptors: [String] = [],
         key: String = "",
         mode: String = "",
-        beatCount: Int = 0,
-        hasMidi: Bool = false
+        beatCount: Int = 0
     ) {
         self.category = category
         self.subcategory = subcategory
@@ -47,7 +40,6 @@ public struct AppleLoopTags: Equatable {
         self.key = key
         self.mode = mode
         self.beatCount = beatCount
-        self.hasMidi = hasMidi
     }
 }
 
