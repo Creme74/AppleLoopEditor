@@ -1258,18 +1258,18 @@ struct AppleLoopEditorView: View {
         changeTick += 1
     }
 
+    /// Picking a category always wipes the subcategory of every selected
+    /// file: whatever subcategory a file carried (possibly different from
+    /// file to file in a multi-selection, or left over from another
+    /// category) no longer applies once the category is chosen explicitly.
+    /// A subcategory can then be picked again from the list on the right.
     private func setCategory(_ newValue: String) {
         selectedCategory = newValue
-        let applicable = AppleLoopVocabulary.subcategoriesAreApplicable(for: newValue)
         for idx in activeIndices {
             files[idx].pendingCategory = newValue
-            if !applicable {
-                files[idx].pendingSubcategory = ""
-            }
+            files[idx].pendingSubcategory = ""
         }
-        if !applicable {
-            selectedSubcategory = nil
-        }
+        selectedSubcategory = nil
         changeTick += 1
     }
 
