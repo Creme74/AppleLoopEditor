@@ -301,14 +301,14 @@ struct AppleLoopEditorView: View {
     /// The sidebar's width with an empty or short file list, AT `uiScale
     /// == 1.0` — same visual size the list had before the Name column
     /// existed as a dynamically-sized thing: room for the Type/Midi/BPM/
-    /// Changes columns plus roughly the same Name space the fixed 280pt
+    /// Mod columns plus roughly the same Name space the fixed 280pt
     /// sidebar used to give (328 before the 46pt Midi column + its 8pt gap
     /// were added, hence 382). Actual on-screen base width is this times
     /// `uiScale`.
     private static let baseSidebarWidth: CGFloat = 382
 
     /// Everything in a row *besides* the Name text itself, AT `uiScale ==
-    /// 1.0`: the playing icon's reserved slot, the Type/Midi/BPM/Changes
+    /// 1.0`: the playing icon's reserved slot, the Type/Midi/BPM/Mod
     /// columns, the HStack's own inter-item spacing (5 gaps x 8), the row's horizontal
     /// padding, and the sidebar's own horizontal padding. Kept in one place
     /// so the Name-measurement math below and the column `.frame(width:)`s
@@ -429,7 +429,7 @@ struct AppleLoopEditorView: View {
     /// `files` in the order the Files list actually shows them: unchanged
     /// (order added) until a column header is clicked, then sorted by that
     /// column exactly like Finder — Name/Type alphabetically, BPM
-    /// numerically (a One-Shot's "000" sorts as 0), Changes groups changed
+    /// numerically (a One-Shot's "000" sorts as 0), Mod groups changed
     /// files together. This is a display-only view: `files` itself is
     /// never reordered, so row mutations elsewhere keep addressing `files`
     /// by `id`. Row order, arrow-key navigation and Shift-click range
@@ -477,7 +477,7 @@ struct AppleLoopEditorView: View {
     }
 
     /// Whether at least one loaded file has an unsaved change — the
-    /// "Changes" column header only sorts while this is true, since
+    /// "Mod" column header only sorts while this is true, since
     /// sorting on an all-unchanged column has nothing meaningful to do.
     private var hasAnyChanges: Bool {
         files.contains { $0.hasChanges }
@@ -494,7 +494,7 @@ struct AppleLoopEditorView: View {
         }
     }
 
-    /// The "Midi" column header, sortable like Type/BPM/Changes. Kept out of
+    /// The "Midi" column header, sortable like Type/BPM/Mod. Kept out of
     /// `body` on purpose: that view builder is already close to the
     /// compiler's type-checking limit, and inlining this pushed it over.
     private var midiColumnHeader: some View {
@@ -582,7 +582,7 @@ struct AppleLoopEditorView: View {
         .buttonStyle(.plain)
     }
 
-    /// The Files list's column headers (Name / Type / Midi / BPM / Changes).
+    /// The Files list's column headers (Name / Type / Midi / BPM / Mod).
     private var filesListHeader: some View {
         HStack {
             Button(action: { toggleSort(.name) }) {
@@ -622,7 +622,7 @@ struct AppleLoopEditorView: View {
 
             Button(action: { toggleSort(.changes) }) {
                 HStack(spacing: 3 * uiScale) {
-                    Text("Changes")
+                    Text("Mod")
                     sortIndicator(for: .changes)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
