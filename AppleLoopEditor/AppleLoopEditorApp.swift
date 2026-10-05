@@ -43,6 +43,10 @@ final class AudioFile: Identifiable, Hashable {
         return String(format: "%03d", tempoBPM)
     }
 
+    /// Whether the loop carries an embedded MIDI performance, for the
+    /// "Midi" column -- display only, never edited.
+    var hasMidi: Bool { file.tags.hasMidi }
+
     private static func computeTempoBPM(beatCount: Int, url: URL) -> Int? {
         guard beatCount > 0 else { return nil }
         // Deliberately NOT `AVAudioFile(forReading:).length`: for a
@@ -227,7 +231,7 @@ struct AppleLoopEditorView: View {
     // MARK: - Files list sorting (click a column header, Finder-style)
 
     private enum SortColumn {
-        case name, type, bpm, changes
+        case name, type, midi, bpm, changes
     }
     /// `nil` until the user clicks a column header for the first time, so
     /// the list starts out in plain "order added" order exactly like
@@ -296,25 +300,29 @@ struct AppleLoopEditorView: View {
 
     /// The sidebar's width with an empty or short file list, AT `uiScale
     /// == 1.0` — same visual size the list had before the Name column
-    /// existed as a dynamically-sized thing: room for the Type/BPM/Changes
-    /// columns plus roughly the same Name space the fixed 280pt sidebar
-    /// used to give. Actual on-screen base width is this times `uiScale`.
-    private static let baseSidebarWidth: CGFloat = 328
+    /// existed as a dynamically-sized thing: room for the Type/Midi/BPM/
+    /// Changes columns plus roughly the same Name space the fixed 280pt
+    /// sidebar used to give (328 before the 46pt Midi column + its 8pt gap
+    /// were added, hence 382). Actual on-screen base width is this times
+    /// `uiScale`.
+    private static let baseSidebarWidth: CGFloat = 382
 
     /// Everything in a row *besides* the Name text itself, AT `uiScale ==
-    /// 1.0`: the playing icon's reserved slot, the BPM/Type/Changes
-    /// columns, the HStack's own inter-item spacing, the row's horizontal
+    /// 1.0`: the playing icon's reserved slot, the Type/Midi/BPM/Changes
+    /// columns, the HStack's own inter-item spacing (5 gaps x 8), the row's horizontal
     /// padding, and the sidebar's own horizontal padding. Kept in one place
     /// so the Name-measurement math below and the column `.frame(width:)`s
     /// in the body can't drift apart. Actual chrome width is this times
     /// `uiScale`, matching every one of those frames being written as
     /// `<value> * uiScale`.
-    private static let sidebarChromeWidth: CGFloat = 16 + 42 + 46 + 60 + 32 + 12 + 30
+    private static let sidebarChromeWidth: CGFloat = 16 + 42 + 46 + 46 + 60 + 40 + 12 + 30
 
     /// The right panel's own width at `uiScale == 1.0` — everything the
     /// old fixed `998` minimum window width meant besides the sidebar's
-    /// `baseSidebarWidth` and the hairline `Divider()` between them.
-    private static let rightPanelBaseWidth: CGFloat = 998 - baseSidebarWidth - 1
+    /// (then 328pt) width and the hairline `Divider()` between them. Kept as
+    /// a constant so widening the sidebar for a new column widens the
+    /// window instead of squeezing the editor panel.
+    private static let rightPanelBaseWidth: CGFloat = 998 - 328 - 1
 
     /// The window's height at `uiScale == 1.0` — what the old fixed `650`
     /// meant before the View menu's size presets existed.
@@ -441,6 +449,15 @@ struct AppleLoopEditorView: View {
                     ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
                     : $0.fileExtension < $1.fileExtension
             }
+        case .midi:
+            // Loops WITH embedded MIDI first on the first click (that's
+            // what someone clicking this header is looking for), name as
+            // the tiebreaker like every other column.
+            ascending = files.sorted {
+                $0.hasMidi == $1.hasMidi
+                    ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                    : ($0.hasMidi && !$1.hasMidi)
+            }
         case .bpm:
             ascending = files.sorted {
                 let lhs = $0.tempoBPM ?? 0
@@ -477,6 +494,33 @@ struct AppleLoopEditorView: View {
         }
     }
 
+    /// The "Midi" column header, sortable like Type/BPM/Changes. Kept out of
+    /// `body` on purpose: that view builder is already close to the
+    /// compiler's type-checking limit, and inlining this pushed it over.
+    private var midiColumnHeader: some View {
+        Button(action: { toggleSort(.midi) }) {
+            HStack(spacing: 3 * uiScale) {
+                Text("Midi")
+                sortIndicator(for: .midi)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Whether the loop contains an embedded MIDI performance")
+        .frame(width: 46 * uiScale, alignment: .center)
+    }
+
+    /// ✓ when the loop carries an embedded MIDI performance, ✗ when it
+    /// doesn't (audio only). Read-only, like BPM. Also kept out of `body`
+    /// for the same type-checking reason as `midiColumnHeader`.
+    private func midiCell(for audioFile: AudioFile) -> some View {
+        Text(audioFile.hasMidi ? "✓" : "✗")
+            .font(.system(size: 12 * uiScale, weight: .semibold))
+            .foregroundColor(Self.vintageYellow.opacity(audioFile.hasMidi ? 1 : 0.4))
+            .frame(width: 46 * uiScale, alignment: .center)
+    }
+
     /// Clicking a column header sorts the Files list by that column: a
     /// first click sorts ascending, clicking the same header again reverses
     /// to descending, clicking a different header switches to that column
@@ -491,180 +535,201 @@ struct AppleLoopEditorView: View {
         }
     }
 
+    /// One row of the Files list. Pulled out of `body` (with the header and
+    /// the sidebar itself) so the Swift type-checker never has to solve the
+    /// whole window layout as a single expression.
+    private func fileRow(for audioFile: AudioFile) -> some View {
+        Button(action: { handleRowClick(audioFile.id) }) {
+            HStack {
+                playingIndicator(for: audioFile, isSelected: selectedFileIDs.contains(audioFile.id))
+
+                Text(audioFile.displayName)
+                    .font(.system(size: 13 * uiScale))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // The extension, shown here instead of as
+                // part of the name above (which is always
+                // displayed without one).
+                Text(audioFile.fileExtension)
+                    .font(.system(size: 10 * uiScale, design: .monospaced))
+                    .foregroundColor(Self.vintageYellow)
+                    .frame(width: 46 * uiScale, alignment: .center)
+
+                midiCell(for: audioFile)
+
+                // Indicative only — read from the tagged
+                // beat count + the audio's real duration,
+                // never edited or written back. "000" for
+                // One-Shots (no beat count to derive from).
+                Text(audioFile.tempoLabel)
+                    .font(.system(size: 11 * uiScale, design: .monospaced))
+                    .foregroundColor(Self.vintageYellow)
+                    .frame(width: 42 * uiScale, alignment: .trailing)
+
+                Text(audioFile.hasChanges ? "•" : "")
+                    .font(.system(size: 20 * uiScale))
+                    .foregroundColor(Self.logoRed)
+                    .frame(width: 60 * uiScale, alignment: .center)
+            }
+            .padding(.horizontal, 6 * uiScale)
+            .padding(.vertical, 4 * uiScale)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selectedFileIDs.contains(audioFile.id) ? Color.accentColor : Color.clear)
+            .cornerRadius(4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The Files list's column headers (Name / Type / Midi / BPM / Changes).
+    private var filesListHeader: some View {
+        HStack {
+            Button(action: { toggleSort(.name) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Name")
+                    sortIndicator(for: .name)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: { toggleSort(.type) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Type")
+                    sortIndicator(for: .type)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 46 * uiScale, alignment: .center)
+
+            midiColumnHeader
+
+            Button(action: { toggleSort(.bpm) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("BPM")
+                    sortIndicator(for: .bpm)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 42 * uiScale, alignment: .trailing)
+
+            Button(action: { toggleSort(.changes) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Changes")
+                    sortIndicator(for: .changes)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasAnyChanges)
+            .opacity(hasAnyChanges ? 1 : 0.4)
+            .frame(width: 60 * uiScale, alignment: .center)
+        }
+        .font(.system(size: 11 * uiScale))
+        .foregroundColor(Self.vintageYellow)
+        .padding(.horizontal, 8 * uiScale)
+        .padding(.vertical, 4 * uiScale)
+        .background(Color.black.opacity(0.2))
+    }
+
+    /// The left-hand Files panel: buttons, column headers and the list.
+    private var filesSidebar: some View {
+        VStack(alignment: .leading, spacing: 12 * uiScale) {
+            Text("Files")
+                .font(.system(size: 13 * uiScale, weight: .semibold))
+                .foregroundColor(.white)
+
+            // Invisible button purely to install the Cmd+A shortcut —
+            // it has no visual presence but stays live as long as this
+            // view is on screen.
+            Button("") {
+                selectedFileIDs = Set(files.map { $0.id })
+                syncEditorSelection()
+            }
+            .keyboardShortcut("a", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+
+            HStack(spacing: 8 * uiScale) {
+                Button(action: addFiles) {
+                    Text("+ Add Files").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
+                }
+                Button(action: removeSelectedFiles) {
+                    Text("- Remove").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
+                }
+                .disabled(selectedFileIDs.isEmpty)
+            }
+            .controlSize(.small)
+
+            VStack(spacing: 0) {
+                filesListHeader
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if files.isEmpty {
+                            // A totally empty ForEach leaves this VStack
+                            // with zero real content, which — even with
+                            // a `.background` painted behind it — was
+                            // found live on this Mac to leave the
+                            // ScrollView with no genuine hit-testable
+                            // area: dropping a file or folder here did
+                            // nothing, while the exact same drag worked
+                            // fine the moment the list held ≥1 row. This
+                            // placeholder guarantees real laid-out
+                            // content at all times, so the drop zone is
+                            // always actually there.
+                            VStack(spacing: 10 * uiScale) {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 40 * uiScale, weight: .regular))
+                                    .foregroundColor(Self.vintageYellow)
+                                Text("Drop files or folder here")
+                                    .font(.system(size: 12 * uiScale, weight: .semibold))
+                                    .foregroundColor(Self.vintageYellow)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 30 * uiScale)
+                        }
+                        ForEach(displayedFiles) { audioFile in
+                            fileRow(for: audioFile)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 200 * uiScale, alignment: .top)
+                    .id(changeTick)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.1))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isFileDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+                .contentShape(Rectangle())
+                .onDrop(of: [.fileURL], isTargeted: $isFileDropTargeted) { providers in
+                    handleDrop(providers: providers)
+                }
+            }
+        }
+        .padding(15 * uiScale)
+        .frame(width: sidebarWidth)
+        .background(Color.black.opacity(0.15))
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // -------------------------------------------------------------
             // 1. LEFT SIDEBAR (Files)
             // -------------------------------------------------------------
-            VStack(alignment: .leading, spacing: 12 * uiScale) {
-                Text("Files")
-                    .font(.system(size: 13 * uiScale, weight: .semibold))
-                    .foregroundColor(.white)
-
-                // Invisible button purely to install the Cmd+A shortcut —
-                // it has no visual presence but stays live as long as this
-                // view is on screen.
-                Button("") {
-                    selectedFileIDs = Set(files.map { $0.id })
-                    syncEditorSelection()
-                }
-                .keyboardShortcut("a", modifiers: .command)
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-
-                HStack(spacing: 8 * uiScale) {
-                    Button(action: addFiles) {
-                        Text("+ Add Files").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
-                    }
-                    Button(action: removeSelectedFiles) {
-                        Text("- Remove").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedFileIDs.isEmpty)
-                }
-                .controlSize(.small)
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Button(action: { toggleSort(.name) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Name")
-                                sortIndicator(for: .name)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button(action: { toggleSort(.type) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Type")
-                                sortIndicator(for: .type)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 46 * uiScale, alignment: .center)
-
-                        Button(action: { toggleSort(.bpm) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("BPM")
-                                sortIndicator(for: .bpm)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 42 * uiScale, alignment: .trailing)
-
-                        Button(action: { toggleSort(.changes) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Changes")
-                                sortIndicator(for: .changes)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!hasAnyChanges)
-                        .opacity(hasAnyChanges ? 1 : 0.4)
-                        .frame(width: 60 * uiScale, alignment: .center)
-                    }
-                    .font(.system(size: 11 * uiScale))
-                    .foregroundColor(Self.vintageYellow)
-                    .padding(.horizontal, 8 * uiScale)
-                    .padding(.vertical, 4 * uiScale)
-                    .background(Color.black.opacity(0.2))
-
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            if files.isEmpty {
-                                // A totally empty ForEach leaves this VStack
-                                // with zero real content, which — even with
-                                // a `.background` painted behind it — was
-                                // found live on this Mac to leave the
-                                // ScrollView with no genuine hit-testable
-                                // area: dropping a file or folder here did
-                                // nothing, while the exact same drag worked
-                                // fine the moment the list held ≥1 row. This
-                                // placeholder guarantees real laid-out
-                                // content at all times, so the drop zone is
-                                // always actually there.
-                                VStack(spacing: 10 * uiScale) {
-                                    Image(systemName: "arrow.down.circle")
-                                        .font(.system(size: 40 * uiScale, weight: .regular))
-                                        .foregroundColor(Self.vintageYellow)
-                                    Text("Drop files or folder here")
-                                        .font(.system(size: 12 * uiScale, weight: .semibold))
-                                        .foregroundColor(Self.vintageYellow)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 30 * uiScale)
-                            }
-                            ForEach(displayedFiles) { audioFile in
-                                Button(action: { handleRowClick(audioFile.id) }) {
-                                    HStack {
-                                        playingIndicator(for: audioFile, isSelected: selectedFileIDs.contains(audioFile.id))
-
-                                        Text(audioFile.displayName)
-                                            .font(.system(size: 13 * uiScale))
-                                            .lineLimit(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                                        // The extension, shown here instead of as
-                                        // part of the name above (which is always
-                                        // displayed without one).
-                                        Text(audioFile.fileExtension)
-                                            .font(.system(size: 10 * uiScale, design: .monospaced))
-                                            .foregroundColor(Self.vintageYellow)
-                                            .frame(width: 46 * uiScale, alignment: .center)
-
-                                        // Indicative only — read from the tagged
-                                        // beat count + the audio's real duration,
-                                        // never edited or written back. "000" for
-                                        // One-Shots (no beat count to derive from).
-                                        Text(audioFile.tempoLabel)
-                                            .font(.system(size: 11 * uiScale, design: .monospaced))
-                                            .foregroundColor(Self.vintageYellow)
-                                            .frame(width: 42 * uiScale, alignment: .trailing)
-
-                                        Text(audioFile.hasChanges ? "•" : "")
-                                            .font(.system(size: 20 * uiScale))
-                                            .foregroundColor(Self.logoRed)
-                                            .frame(width: 60 * uiScale, alignment: .center)
-                                    }
-                                    .padding(.horizontal, 6 * uiScale)
-                                    .padding(.vertical, 4 * uiScale)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(selectedFileIDs.contains(audioFile.id) ? Color.accentColor : Color.clear)
-                                    .cornerRadius(4)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 200 * uiScale, alignment: .top)
-                        .id(changeTick)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(isFileDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
-                    )
-                    .contentShape(Rectangle())
-                    .onDrop(of: [.fileURL], isTargeted: $isFileDropTargeted) { providers in
-                        handleDrop(providers: providers)
-                    }
-                }
-            }
-            .padding(15 * uiScale)
-            .frame(width: sidebarWidth)
-            .background(Color.black.opacity(0.15))
+            filesSidebar
 
             Divider()
 

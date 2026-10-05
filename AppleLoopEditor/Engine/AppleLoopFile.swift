@@ -55,7 +55,8 @@ public final class AppleLoopFile {
                 descriptors: splitCommaList(pairs.value(for: AppleLoopMetadataKey.descriptors)),
                 key: pairs.value(for: AppleLoopMetadataKey.keySignature) ?? "",
                 mode: AppleLoopKeyEncoding.scaleName(forKeyTypeString: pairs.value(for: AppleLoopMetadataKey.keyType) ?? ""),
-                beatCount: Int(pairs.value(for: AppleLoopMetadataKey.beatCount) ?? "") ?? 0
+                beatCount: Int(pairs.value(for: AppleLoopMetadataKey.beatCount) ?? "") ?? 0,
+                hasMidi: hasEmbeddedMidi(chunks, in: data, format: format)
             )
             return (tags, false)
 
@@ -84,10 +85,28 @@ public final class AppleLoopFile {
                 descriptors: cate.descriptors,
                 key: key,
                 mode: mode,
-                beatCount: beatCount
+                beatCount: beatCount,
+                hasMidi: hasEmbeddedMidi(chunks, in: data, format: format)
             )
             return (tags, false)
         }
+    }
+
+    /// True when the loop has an embedded MIDI performance: the container's
+    /// MIDI chunk ('.mid' in AIFF, 'midi' in CAF -- confirmed against real
+    /// Logic-authored loops of both formats) holding an actual Standard MIDI
+    /// File, i.e. starting with the 'MThd' header. A chunk that's present but
+    /// empty or not a real SMF doesn't count.
+    private static func hasEmbeddedMidi(_ chunks: [ChunkInfo], in data: Data, format: ContainerFormat) -> Bool {
+        let midiChunkID: String
+        switch format {
+        case .caf: midiChunkID = "midi"
+        case .aiff: midiChunkID = ".mid"
+        }
+        guard let chunk = chunks.first(where: { $0.id == midiChunkID }),
+              chunk.dataLength >= 14 // 'MThd' + length + format/ntrks/division
+        else { return false }
+        return data.subdata(in: chunk.dataOffset..<chunk.dataOffset + 4) == Data("MThd".utf8)
     }
 
     private static func splitCommaList(_ value: String?) -> [String] {
@@ -129,11 +148,13 @@ public final class AppleLoopFile {
     /// bytes so `self.tags` always reflects exactly what's on disk
     /// (including any normalization, e.g. lowercase 'key type').
     ///
-    /// The write is atomic (temp file + rename on the same volume), so a
-    /// crash or power loss mid-write can never leave `url` truncated or
-    /// corrupted. When `keepBackup` is true (the default), the previous
-    /// file contents are copied to `<url>.bak` first, best-effort, before
-    /// the new data is written.
+    /// The write itself is atomic (Foundation writes to a temp file on the
+    /// same volume, then renames it into place), so an interruption mid-write
+    /// (crash, power loss) can never leave a truncated/corrupted loop at
+    /// `url` -- the original stays intact until the new data is fully on
+    /// disk. When `keepBackup` is true (the default), a `.bak` copy of the
+    /// file as it was *before* this edit is written alongside it first, as
+    /// a best-effort safety net; a backup failure never blocks the save.
     public func apply(_ edit: AppleLoopTagEdit, keepBackup: Bool = true) throws {
         guard !edit.isEmpty else { return }
         let newData = try dataApplying(edit)
