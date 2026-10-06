@@ -75,7 +75,7 @@ public final class AppleLoopFile {
             if let bascInfo = chunks.first(where: { $0.id == "basc" }) {
                 let basc = try BascChunk.parse(from: data, dataOffset: bascInfo.dataOffset, dataLength: bascInfo.dataLength)
                 key = AppleLoopKeyEncoding.noteName(forMIDINote: basc.keyMIDINote)
-                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale, hasKey: basc.keyMIDINote > 0)
+                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale, hasKey: !key.isEmpty)
                 beatCount = Int(basc.beatCount.readUInt32BE(at: 0))
             }
 
@@ -220,6 +220,10 @@ public final class AppleLoopFile {
             // the key (LoopMetadataPairList.set(_, to: nil) deletes it)
             // matches Apple's own format exactly.
             pairs.set(AppleLoopMetadataKey.beatCount, to: nil)
+            // Logic greys out Key and Scale for a One-Shot, and Apple's own
+            // CAF One-Shots (1,100+ of 1,108) carry neither pair.
+            pairs.set(AppleLoopMetadataKey.keySignature, to: nil)
+            pairs.set(AppleLoopMetadataKey.keyType, to: nil)
         }
 
         var newChunkData = Data()
@@ -259,13 +263,18 @@ public final class AppleLoopFile {
             if edit.convertToOneShot == true {
                 // Confirmed by diffing a real Logic loop against a real
                 // one-shot: beatCount 0 + time signature 0/0 is what marks
-                // a file as a One-Shot. Key/Scale/loopableFlag are left
-                // untouched — they're independent of loop-vs-one-shot.
+                // a file as a One-Shot, together with no key / no scale.
+                // The loopable flag is left untouched.
                 var zero4 = Data(); zero4.appendUInt32BE(0)
                 var zero2 = Data(); zero2.appendUInt16BE(0)
                 basc.beatCount = zero4
                 basc.timeSigNumerator = zero2
                 basc.timeSigDenominator = zero2
+                // Confirmed against a One-Shot authored by Logic: key is the
+                // 0xFFFF "no key" marker and scale is 0 (Key/Scale are
+                // greyed out in Logic for a One-Shot).
+                basc.keyMIDINote = AppleLoopKeyEncoding.noKeyMarker
+                basc.scale = 0
             }
             let newBascData = basc.serialized()
             precondition(newBascData.count == bascInfo.dataLength, "basc edit must not change chunk size")

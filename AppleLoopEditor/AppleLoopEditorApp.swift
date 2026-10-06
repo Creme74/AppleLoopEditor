@@ -38,8 +38,12 @@ final class AudioFile: Identifiable, Hashable {
     /// ceiling, this is just a display safety net.
     let tempoBPM: Int?
 
+    /// `tempoBPM` is measured once when the file is added; a file converted
+    /// to One-Shot afterwards must read 000 straight away, not its old tempo.
+    var effectiveBPM: Int? { file.tags.isOneShot ? nil : tempoBPM }
+
     var tempoLabel: String {
-        guard let tempoBPM else { return "000" }
+        guard let tempoBPM = effectiveBPM else { return "000" }
         return String(format: "%03d", tempoBPM)
     }
 
@@ -287,6 +291,11 @@ struct AppleLoopEditorView: View {
     @State private var selectedKey: String = "(None)"
     /// nil = mixed selection (some Loop, some One-Shot) or nothing selected.
     @State private var selectedIsOneShot: Bool?
+    /// Set by the Up/Down arrow navigation: the row the Files list must
+    /// scroll into view. `scrollTick` changes on every request so scrolling
+    /// fires even when the target id is the same as last time.
+    @State private var scrollTargetID: UUID?
+    @State private var scrollTick = 0
     @State private var selectedCategory: String?
     @State private var selectedSubcategory: String?
     @State private var selectedDescriptors: Set<String> = []
@@ -476,8 +485,8 @@ struct AppleLoopEditorView: View {
             }
         case .bpm:
             ascending = files.sorted {
-                let lhs = $0.tempoBPM ?? 0
-                let rhs = $1.tempoBPM ?? 0
+                let lhs = $0.effectiveBPM ?? 0
+                let rhs = $1.effectiveBPM ?? 0
                 return lhs == rhs
                     ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
                     : lhs < rhs
@@ -689,6 +698,7 @@ struct AppleLoopEditorView: View {
             VStack(spacing: 0) {
                 filesListHeader
 
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
                         if files.isEmpty {
@@ -717,6 +727,7 @@ struct AppleLoopEditorView: View {
                         }
                         ForEach(displayedFiles) { audioFile in
                             fileRow(for: audioFile)
+                                .id(audioFile.id)
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 200 * uiScale, alignment: .top)
@@ -732,6 +743,14 @@ struct AppleLoopEditorView: View {
                 .contentShape(Rectangle())
                 .onDrop(of: [.fileURL], isTargeted: $isFileDropTargeted) { providers in
                     handleDrop(providers: providers)
+                }
+                // Follows the Up/Down arrow keys: keeps the selected row in
+                // view in a long list (minimal scroll, no anchor).
+                .onChange(of: scrollTick) {
+                    if let id = scrollTargetID {
+                        proxy.scrollTo(id)
+                    }
+                }
                 }
             }
         }
@@ -761,6 +780,7 @@ struct AppleLoopEditorView: View {
                         )) {
                             ForEach(displayOptions(scaleOptions, current: selectedScale), id: \.self) { Text(AppleLoopKeyEncoding.scaleDisplayName($0)) }
                         }
+                        .disabled(selectedIsOneShot == true)
                         Picker("Genre:", selection: Binding(
                             get: { selectedGenre },
                             set: { setGenre($0) }
@@ -773,6 +793,7 @@ struct AppleLoopEditorView: View {
                         )) {
                             ForEach(displayOptions(keyOptions, current: selectedKey), id: \.self) { Text($0) }
                         }
+                        .disabled(selectedIsOneShot == true)
                     }
                     .font(.system(size: 13 * uiScale))
                     .pickerStyle(.menu)
@@ -822,7 +843,7 @@ struct AppleLoopEditorView: View {
                                 .font(.system(size: 12 * uiScale))
                         }
                     }
-                    .disabled(activeIndices.isEmpty || isAnalyzing)
+                    .disabled(activeIndices.isEmpty || isAnalyzing || selectedIsOneShot == true)
 
                     Text(analysisInfoText)
                         .font(.system(size: 10 * uiScale))
@@ -993,6 +1014,8 @@ struct AppleLoopEditorView: View {
         selectedFileIDs = [newID]
         selectionAnchorID = newID
         syncEditorSelection()
+        scrollTargetID = newID
+        scrollTick += 1
         return true
     }
 
@@ -1194,7 +1217,7 @@ struct AppleLoopEditorView: View {
         guard newValue != "(Multiple)" else { return }
         selectedScale = newValue
         let value = (newValue == "(None)") ? "" : newValue
-        for idx in activeIndices { files[idx].pendingMode = value }
+        for idx in activeIndices where !files[idx].pendingIsOneShot { files[idx].pendingMode = value }
         changeTick += 1
     }
 
@@ -1210,7 +1233,7 @@ struct AppleLoopEditorView: View {
         guard newValue != "(Multiple)" else { return }
         selectedKey = newValue
         let value = (newValue == "(None)") ? "" : newValue
-        for idx in activeIndices { files[idx].pendingKey = value }
+        for idx in activeIndices where !files[idx].pendingIsOneShot { files[idx].pendingKey = value }
         changeTick += 1
     }
 
@@ -1268,9 +1291,13 @@ struct AppleLoopEditorView: View {
     private func setIsOneShot(_ newValue: Bool) {
         for idx in activeIndices where !files[idx].file.tags.isOneShot {
             files[idx].pendingIsOneShot = newValue
+            // A One-Shot has no key and no scale (Logic greys both out), so
+            // converting clears them; going back to Loop before saving
+            // restores what the file has on disk.
+            files[idx].pendingKey = newValue ? "" : files[idx].file.tags.key
+            files[idx].pendingMode = newValue ? "" : files[idx].file.tags.mode
         }
-        let values = Set(activeIndices.map { files[$0].pendingIsOneShot })
-        selectedIsOneShot = values.count == 1 ? values.first : nil
+        loadEditorFieldsForMultiSelection()
         changeTick += 1
     }
 

@@ -76,8 +76,13 @@ public enum AppleLoopKeyEncoding {
         return UInt16(48 + idx)
     }
 
+    /// Logic marks "no key" with 0 or 0xFFFF (a One-Shot it authored has
+    /// 0xFFFF, as do ~330 loops in the wild), so anything outside the MIDI
+    /// range means "no key" -- never a note.
+    public static let noKeyMarker: UInt16 = 0xFFFF
+
     public static func noteName(forMIDINote note: UInt16) -> String {
-        guard note > 0 else { return "" }
+        guard note > 0, note < 128 else { return "" }
         let idx = (Int(note) - 48) % 12
         guard idx >= 0, idx < noteNames.count else { return "" }
         return noteNames[idx]
