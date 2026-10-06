@@ -746,7 +746,7 @@ struct AppleLoopEditorView: View {
                 }
                 // Follows the Up/Down arrow keys: keeps the selected row in
                 // view in a long list (minimal scroll, no anchor).
-                .onChange(of: scrollTick) {
+                .onChange(of: scrollTick) { _ in
                     if let id = scrollTargetID {
                         proxy.scrollTo(id)
                     }
