@@ -18,7 +18,7 @@ public enum AppleLoopVocabulary {
         "All Drums": ["Beats", "Cymbal", "Hi-Hat", "Kick", "Kits", "Snare", "Tom"],
         "Bass": ["Acoustic Bass", "Elec Bass", "Synthetic Bass"],
         "Brass": ["French Horn", "Harmonica", "Trombone", "Trumpet", "Tuba"],
-        "FX": ["Ambience", "Animals", "Explosions", "Foley", "Impacts", "Machines", "Misc.", "People", "Sci-Fi", "Sports", "Stingers", "Textures", "Transportation", "Vocals", "Weapons", "Work/Home"],
+        "FX": ["Ambience", "Animals", "Explosions", "Foley", "Impacts", "Machines", "Misc.", "People", "Sci-Fi", "Sports", "Stingers", "Transportation", "Weapons", "Work/Home"],
         "Guitars": ["Acoustic Guitar", "Banjo", "Elec Guitar", "Mandolin", "Pedal Steel", "Slide Guitar"],
         "Horn": ["Bagpipe", "Bassoon", "Clarinet", "English Horn", "Flute", "French Horn", "Harmonica", "Oboe", "Pan Flute", "Piccolo", "Recorder", "Saxophone", "Trombone", "Trumpet"],
         "Jingles": [],
