@@ -54,7 +54,7 @@ public final class AppleLoopFile {
                 storedSubcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? "",
                 genre: pairs.value(for: AppleLoopMetadataKey.genre) ?? "",
                 descriptors: splitCommaList(pairs.value(for: AppleLoopMetadataKey.descriptors)),
-                key: pairs.value(for: AppleLoopMetadataKey.keySignature) ?? "",
+                key: AppleLoopKeyEncoding.canonicalNoteName(pairs.value(for: AppleLoopMetadataKey.keySignature) ?? ""),
                 mode: AppleLoopKeyEncoding.scaleName(forKeyTypeString: pairs.value(for: AppleLoopMetadataKey.keyType) ?? ""),
                 beatCount: Int(pairs.value(for: AppleLoopMetadataKey.beatCount) ?? "") ?? 0,
                 hasMidi: hasEmbeddedMidi(chunks, in: data, format: format)
@@ -75,7 +75,7 @@ public final class AppleLoopFile {
             if let bascInfo = chunks.first(where: { $0.id == "basc" }) {
                 let basc = try BascChunk.parse(from: data, dataOffset: bascInfo.dataOffset, dataLength: bascInfo.dataLength)
                 key = AppleLoopKeyEncoding.noteName(forMIDINote: basc.keyMIDINote)
-                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale)
+                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale, hasKey: basc.keyMIDINote > 0)
                 beatCount = Int(basc.beatCount.readUInt32BE(at: 0))
             }
 

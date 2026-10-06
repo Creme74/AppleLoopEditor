@@ -759,7 +759,7 @@ struct AppleLoopEditorView: View {
                             get: { selectedScale },
                             set: { setScale($0) }
                         )) {
-                            ForEach(displayOptions(scaleOptions, current: selectedScale), id: \.self) { Text($0) }
+                            ForEach(displayOptions(scaleOptions, current: selectedScale), id: \.self) { Text(AppleLoopKeyEncoding.scaleDisplayName($0)) }
                         }
                         Picker("Genre:", selection: Binding(
                             get: { selectedGenre },
