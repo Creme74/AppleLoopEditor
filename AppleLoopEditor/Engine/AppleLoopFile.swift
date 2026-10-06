@@ -50,12 +50,14 @@ public final class AppleLoopFile {
             let storedCategory = pairs.value(for: AppleLoopMetadataKey.category) ?? ""
             let tags = AppleLoopTags(
                 category: storedCategory.isEmpty ? "" : AppleLoopVocabulary.displayName(forStorageCategory: storedCategory),
-                subcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? "",
+                subcategory: AppleLoopVocabulary.displayName(forStorageSubcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? ""),
+                storedSubcategory: pairs.value(for: AppleLoopMetadataKey.subcategory) ?? "",
                 genre: pairs.value(for: AppleLoopMetadataKey.genre) ?? "",
                 descriptors: splitCommaList(pairs.value(for: AppleLoopMetadataKey.descriptors)),
-                key: pairs.value(for: AppleLoopMetadataKey.keySignature) ?? "",
+                key: AppleLoopKeyEncoding.canonicalNoteName(pairs.value(for: AppleLoopMetadataKey.keySignature) ?? ""),
                 mode: AppleLoopKeyEncoding.scaleName(forKeyTypeString: pairs.value(for: AppleLoopMetadataKey.keyType) ?? ""),
-                beatCount: Int(pairs.value(for: AppleLoopMetadataKey.beatCount) ?? "") ?? 0
+                beatCount: Int(pairs.value(for: AppleLoopMetadataKey.beatCount) ?? "") ?? 0,
+                hasMidi: hasEmbeddedMidi(chunks, in: data, format: format)
             )
             return (tags, false)
 
@@ -73,21 +75,40 @@ public final class AppleLoopFile {
             if let bascInfo = chunks.first(where: { $0.id == "basc" }) {
                 let basc = try BascChunk.parse(from: data, dataOffset: bascInfo.dataOffset, dataLength: bascInfo.dataLength)
                 key = AppleLoopKeyEncoding.noteName(forMIDINote: basc.keyMIDINote)
-                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale)
+                mode = AppleLoopKeyEncoding.scaleName(forCode: basc.scale, hasKey: !key.isEmpty)
                 beatCount = Int(basc.beatCount.readUInt32BE(at: 0))
             }
 
             let tags = AppleLoopTags(
                 category: cate.category.isEmpty ? "" : AppleLoopVocabulary.displayName(forStorageCategory: cate.category),
-                subcategory: cate.subcategory,
+                subcategory: AppleLoopVocabulary.displayName(forStorageSubcategory: cate.subcategory),
+                storedSubcategory: cate.subcategory,
                 genre: cate.genre,
                 descriptors: cate.descriptors,
                 key: key,
                 mode: mode,
-                beatCount: beatCount
+                beatCount: beatCount,
+                hasMidi: hasEmbeddedMidi(chunks, in: data, format: format)
             )
             return (tags, false)
         }
+    }
+
+    /// True when the loop has an embedded MIDI performance: the container's
+    /// MIDI chunk ('.mid' in AIFF, 'midi' in CAF -- confirmed against real
+    /// Logic-authored loops of both formats) holding an actual Standard MIDI
+    /// File, i.e. starting with the 'MThd' header. A chunk that's present but
+    /// empty or not a real SMF doesn't count.
+    private static func hasEmbeddedMidi(_ chunks: [ChunkInfo], in data: Data, format: ContainerFormat) -> Bool {
+        let midiChunkID: String
+        switch format {
+        case .caf: midiChunkID = "midi"
+        case .aiff: midiChunkID = ".mid"
+        }
+        guard let chunk = chunks.first(where: { $0.id == midiChunkID }),
+              chunk.dataLength >= 14 // 'MThd' + length + format/ntrks/division
+        else { return false }
+        return data.subdata(in: chunk.dataOffset..<chunk.dataOffset + 4) == Data("MThd".utf8)
     }
 
     private static func splitCommaList(_ value: String?) -> [String] {
@@ -129,11 +150,13 @@ public final class AppleLoopFile {
     /// bytes so `self.tags` always reflects exactly what's on disk
     /// (including any normalization, e.g. lowercase 'key type').
     ///
-    /// The write is atomic (temp file + rename on the same volume), so a
-    /// crash or power loss mid-write can never leave `url` truncated or
-    /// corrupted. When `keepBackup` is true (the default), the previous
-    /// file contents are copied to `<url>.bak` first, best-effort, before
-    /// the new data is written.
+    /// The write itself is atomic (Foundation writes to a temp file on the
+    /// same volume, then renames it into place), so an interruption mid-write
+    /// (crash, power loss) can never leave a truncated/corrupted loop at
+    /// `url` -- the original stays intact until the new data is fully on
+    /// disk. When `keepBackup` is true (the default), a `.bak` copy of the
+    /// file as it was *before* this edit is written alongside it first, as
+    /// a best-effort safety net; a backup failure never blocks the save.
     public func apply(_ edit: AppleLoopTagEdit, keepBackup: Bool = true) throws {
         guard !edit.isEmpty else { return }
         let newData = try dataApplying(edit)
@@ -176,7 +199,7 @@ public final class AppleLoopFile {
             pairs.set(AppleLoopMetadataKey.category, to: AppleLoopVocabulary.storageName(forDisplayCategory: category))
         }
         if let subcategory = edit.subcategory {
-            pairs.set(AppleLoopMetadataKey.subcategory, to: subcategory)
+            pairs.set(AppleLoopMetadataKey.subcategory, to: AppleLoopVocabulary.storageName(forDisplaySubcategory: subcategory))
         }
         if let genre = edit.genre {
             pairs.set(AppleLoopMetadataKey.genre, to: genre)
@@ -197,6 +220,10 @@ public final class AppleLoopFile {
             // the key (LoopMetadataPairList.set(_, to: nil) deletes it)
             // matches Apple's own format exactly.
             pairs.set(AppleLoopMetadataKey.beatCount, to: nil)
+            // Logic greys out Key and Scale for a One-Shot, and Apple's own
+            // CAF One-Shots (1,100+ of 1,108) carry neither pair.
+            pairs.set(AppleLoopMetadataKey.keySignature, to: nil)
+            pairs.set(AppleLoopMetadataKey.keyType, to: nil)
         }
 
         var newChunkData = Data()
@@ -236,13 +263,18 @@ public final class AppleLoopFile {
             if edit.convertToOneShot == true {
                 // Confirmed by diffing a real Logic loop against a real
                 // one-shot: beatCount 0 + time signature 0/0 is what marks
-                // a file as a One-Shot. Key/Scale/loopableFlag are left
-                // untouched — they're independent of loop-vs-one-shot.
+                // a file as a One-Shot, together with no key / no scale.
+                // The loopable flag is left untouched.
                 var zero4 = Data(); zero4.appendUInt32BE(0)
                 var zero2 = Data(); zero2.appendUInt16BE(0)
                 basc.beatCount = zero4
                 basc.timeSigNumerator = zero2
                 basc.timeSigDenominator = zero2
+                // Confirmed against a One-Shot authored by Logic: key is the
+                // 0xFFFF "no key" marker and scale is 0 (Key/Scale are
+                // greyed out in Logic for a One-Shot).
+                basc.keyMIDINote = AppleLoopKeyEncoding.noKeyMarker
+                basc.scale = 0
             }
             let newBascData = basc.serialized()
             precondition(newBascData.count == bascInfo.dataLength, "basc edit must not change chunk size")
@@ -264,7 +296,7 @@ public final class AppleLoopFile {
                 cate.category = AppleLoopVocabulary.storageName(forDisplayCategory: category)
             }
             if let subcategory = edit.subcategory {
-                cate.subcategory = subcategory
+                cate.subcategory = AppleLoopVocabulary.storageName(forDisplaySubcategory: subcategory)
             }
             if let genre = edit.genre {
                 cate.genre = genre

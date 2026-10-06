@@ -76,17 +76,40 @@ public enum AppleLoopKeyEncoding {
         return UInt16(48 + idx)
     }
 
+    /// Logic marks "no key" with 0 or 0xFFFF (a One-Shot it authored has
+    /// 0xFFFF, as do ~330 loops in the wild), so anything outside the MIDI
+    /// range means "no key" -- never a note.
+    public static let noKeyMarker: UInt16 = 0xFFFF
+
     public static func noteName(forMIDINote note: UInt16) -> String {
-        guard note > 0 else { return "" }
+        guard note > 0, note < 128 else { return "" }
         let idx = (Int(note) - 48) % 12
         guard idx >= 0, idx < noteNames.count else { return "" }
         return noteNames[idx]
     }
 
-    public static let scaleNames: [String] = ["Minor", "Major", "Neither", "Both"]
+    /// Apple spells some keys with flats in CAF loops ("Bb", "Eb"...); the app
+    /// only offers the sharp spellings, so flats are mapped to their sharp
+    /// equivalent when read. Unknown values are returned unchanged.
+    public static func canonicalNoteName(_ name: String) -> String {
+        let flats = ["Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"]
+        return flats[name] ?? name
+    }
 
+    /// Logic's Scale popup: Any, Minor, Major, Neither, Good for Both.
+    /// "Both" is the internal name for "Good for Both" (see `scaleDisplayName`).
+    public static let scaleNames: [String] = ["Any", "Minor", "Major", "Neither", "Both"]
+
+    /// Label shown in the UI (Logic calls "Both" "Good for Both").
+    public static func scaleDisplayName(_ name: String) -> String {
+        name == "Both" ? "Good for Both" : name
+    }
+
+    /// AIFF scale code 0 means "Any" when the loop has a key, and "no scale"
+    /// otherwise (confirmed on Apple's own loops).
     public static func scaleCode(forName name: String) -> UInt16 {
         switch name.lowercased() {
+        case "any": return 0
         case "minor": return 1
         case "major": return 2
         case "neither": return 3
@@ -95,13 +118,13 @@ public enum AppleLoopKeyEncoding {
         }
     }
 
-    public static func scaleName(forCode code: UInt16) -> String {
+    public static func scaleName(forCode code: UInt16, hasKey: Bool = false) -> String {
         switch code {
         case 1: return "Minor"
         case 2: return "Major"
         case 3: return "Neither"
         case 4: return "Both"
-        default: return ""
+        default: return hasKey ? "Any" : ""
         }
     }
 
@@ -113,6 +136,7 @@ public enum AppleLoopKeyEncoding {
 
     public static func scaleName(forKeyTypeString value: String) -> String {
         switch value.lowercased() {
+        case "any": return "Any"
         case "minor": return "Minor"
         case "major": return "Major"
         case "neither": return "Neither"

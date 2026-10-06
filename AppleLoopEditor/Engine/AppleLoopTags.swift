@@ -6,7 +6,14 @@ import Foundation
 /// The current tags read from an Apple Loop file.
 public struct AppleLoopTags: Equatable {
     public var category: String
+    /// Subcategory as the app displays it (Logic's tagging-UI label, e.g.
+    /// "Elec Piano"). See `AppleLoopVocabulary.subcategoryStorageNameOverrides`.
     public var subcategory: String
+    /// The subcategory string exactly as stored in the file (e.g. "Electric
+    /// Piano"). Read-only information, never part of an edit; it lets the
+    /// app spot loops tagged by an older version with a name Logic doesn't
+    /// use, so they can be fixed by re-selecting their subcategory.
+    public var storedSubcategory: String
     public var genre: String
     public var descriptors: [String]
     public var key: String   // root note, e.g. "A"; "" = none
@@ -20,6 +27,12 @@ public struct AppleLoopTags: Equatable {
 
     public var isOneShot: Bool { beatCount == 0 }
 
+    /// Whether the file carries an embedded MIDI performance (a real
+    /// Standard MIDI File in the container's MIDI chunk: '.mid' in AIFF,
+    /// 'midi' in CAF) -- the notes that triggered a software-instrument
+    /// loop. Read-only information: never part of an edit.
+    public var hasMidi: Bool
+
     public var descriptorsJoined: String {
         descriptors.joined(separator: ", ")
     }
@@ -27,19 +40,23 @@ public struct AppleLoopTags: Equatable {
     public init(
         category: String = "",
         subcategory: String = "",
+        storedSubcategory: String? = nil,
         genre: String = "",
         descriptors: [String] = [],
         key: String = "",
         mode: String = "",
-        beatCount: Int = 0
+        beatCount: Int = 0,
+        hasMidi: Bool = false
     ) {
         self.category = category
         self.subcategory = subcategory
+        self.storedSubcategory = storedSubcategory ?? subcategory
         self.genre = genre
         self.descriptors = descriptors
         self.key = key
         self.mode = mode
         self.beatCount = beatCount
+        self.hasMidi = hasMidi
     }
 }
 

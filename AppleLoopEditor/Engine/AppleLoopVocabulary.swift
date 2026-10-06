@@ -18,7 +18,7 @@ public enum AppleLoopVocabulary {
         "All Drums": ["Beats", "Cymbal", "Hi-Hat", "Kick", "Kits", "Snare", "Tom"],
         "Bass": ["Acoustic Bass", "Elec Bass", "Synthetic Bass"],
         "Brass": ["French Horn", "Harmonica", "Trombone", "Trumpet", "Tuba"],
-        "FX": ["Ambience", "Animals", "Explosions", "Foley", "Impacts", "Machines", "Misc.", "People", "Sci-Fi", "Sports", "Stingers", "Textures", "Transportation", "Vocals", "Weapons", "Work/Home"],
+        "FX": ["Ambience", "Animals", "Explosions", "Foley", "Impacts", "Machines", "Misc.", "People", "Sci-Fi", "Sports", "Stingers", "Transportation", "Weapons", "Work/Home"],
         "Guitars": ["Acoustic Guitar", "Banjo", "Elec Guitar", "Mandolin", "Pedal Steel", "Slide Guitar"],
         "Horn": ["Bagpipe", "Bassoon", "Clarinet", "English Horn", "Flute", "French Horn", "Harmonica", "Oboe", "Pan Flute", "Piccolo", "Recorder", "Saxophone", "Trombone", "Trumpet"],
         "Jingles": [],
@@ -68,6 +68,46 @@ public enum AppleLoopVocabulary {
 
     public static func displayName(forStorageCategory storage: String) -> String {
         if let match = categoryStorageNameOverrides.first(where: { $0.value == storage }) {
+            return match.key
+        }
+        return storage
+    }
+
+    /// Same story as the categories, one level down: for many subcategories
+    /// the label shown in Logic's tagging UI is NOT the string Logic writes
+    /// to the file. Left as-is, a loop tagged here got e.g. "Hi-Hat" or
+    /// "Elec Piano" on disk, which Logic's Loop Browser doesn't recognise
+    /// (it only matches its own stored names), so the loop landed outside
+    /// its subcategory.
+    ///
+    /// The stored names below were read from the ~31,000 Apple-authored
+    /// loops installed with Logic Pro (every distinct category/subcategory
+    /// pair), and double-checked against loops tagged by Logic itself.
+    /// Display names missing from this table are written unchanged (they
+    /// are identical on disk: "Kick", "Snare", "Organ", "Piano"...).
+    public static let subcategoryStorageNameOverrides: [String: String] = [
+        "Beats": "Electronic Beats",
+        "Hi-Hat": "Hi-hat",
+        "Kits": "Drum Kit",
+        "Elec Bass": "Electric Bass",
+        "Elec Guitar": "Electric Guitar",
+        "Pedal Steel": "Pedal Steel Guitar",
+        "Elec Piano": "Electric Piano",
+        "Synths": "Synthesizer",
+        "Vibes": "Vibraphone",
+        "Vinyl": "Vinyl/Scratch",
+        "Impacts": "Impacts & Crashes",
+        "Sports": "Sports & Leisure",
+        "Stingers": "Motions & Transitions",
+        "Machines": "Mech/Tech",
+    ]
+
+    public static func storageName(forDisplaySubcategory display: String) -> String {
+        subcategoryStorageNameOverrides[display] ?? display
+    }
+
+    public static func displayName(forStorageSubcategory storage: String) -> String {
+        if let match = subcategoryStorageNameOverrides.first(where: { $0.value == storage }) {
             return match.key
         }
         return storage

@@ -38,10 +38,18 @@ final class AudioFile: Identifiable, Hashable {
     /// ceiling, this is just a display safety net.
     let tempoBPM: Int?
 
+    /// `tempoBPM` is measured once when the file is added; a file converted
+    /// to One-Shot afterwards must read 000 straight away, not its old tempo.
+    var effectiveBPM: Int? { file.tags.isOneShot ? nil : tempoBPM }
+
     var tempoLabel: String {
-        guard let tempoBPM else { return "000" }
+        guard let tempoBPM = effectiveBPM else { return "000" }
         return String(format: "%03d", tempoBPM)
     }
+
+    /// Whether the loop carries an embedded MIDI performance, for the
+    /// "Midi" column -- display only, never edited.
+    var hasMidi: Bool { file.tags.hasMidi }
 
     private static func computeTempoBPM(beatCount: Int, url: URL) -> Int? {
         guard beatCount > 0 else { return nil }
@@ -59,6 +67,12 @@ final class AudioFile: Identifiable, Hashable {
 
     var pendingCategory: String
     var pendingSubcategory: String
+    /// Set when the user clicks a subcategory row, even if it's the one the
+    /// file already shows. It lets a loop tagged by an older version with a
+    /// name Logic doesn't use ("Hi-Hat", "Elec Piano"...) be fixed by simply
+    /// re-clicking its subcategory: the pending value equals the displayed
+    /// one, but not what's actually stored on disk.
+    var subcategoryTouched = false
     var pendingGenre: String
     var pendingDescriptors: Set<String>
     var pendingKey: String
@@ -80,9 +94,18 @@ final class AudioFile: Identifiable, Hashable {
         self.pendingIsOneShot = file.tags.isOneShot
     }
 
+    /// True when the pending subcategory must be (re)written: it differs from
+    /// what's shown, or the user re-picked it and the name on disk isn't the
+    /// one Logic uses.
+    private var subcategoryNeedsWrite: Bool {
+        if pendingSubcategory != file.tags.subcategory { return true }
+        return subcategoryTouched &&
+            AppleLoopVocabulary.storageName(forDisplaySubcategory: pendingSubcategory) != file.tags.storedSubcategory
+    }
+
     var hasChanges: Bool {
         pendingCategory != file.tags.category ||
-        pendingSubcategory != file.tags.subcategory ||
+        subcategoryNeedsWrite ||
         pendingGenre != file.tags.genre ||
         pendingDescriptors != Set(file.tags.descriptors) ||
         pendingKey != file.tags.key ||
@@ -97,7 +120,7 @@ final class AudioFile: Identifiable, Hashable {
         let becomingOneShot = pendingIsOneShot != file.tags.isOneShot && pendingIsOneShot
         return AppleLoopTagEdit(
             category: pendingCategory != file.tags.category ? pendingCategory : nil,
-            subcategory: pendingSubcategory != file.tags.subcategory ? pendingSubcategory : nil,
+            subcategory: subcategoryNeedsWrite ? pendingSubcategory : nil,
             genre: pendingGenre != file.tags.genre ? pendingGenre : nil,
             descriptors: descriptorsChanged
                 // Keep the app's own vocabulary words in their canonical
@@ -124,6 +147,7 @@ final class AudioFile: Identifiable, Hashable {
     func resetPendingToCurrentTags() {
         pendingCategory = file.tags.category
         pendingSubcategory = file.tags.subcategory
+        subcategoryTouched = false
         pendingGenre = file.tags.genre
         pendingDescriptors = Set(file.tags.descriptors)
         pendingKey = file.tags.key
@@ -227,7 +251,7 @@ struct AppleLoopEditorView: View {
     // MARK: - Files list sorting (click a column header, Finder-style)
 
     private enum SortColumn {
-        case name, type, bpm, changes
+        case name, type, midi, bpm, changes
     }
     /// `nil` until the user clicks a column header for the first time, so
     /// the list starts out in plain "order added" order exactly like
@@ -267,6 +291,11 @@ struct AppleLoopEditorView: View {
     @State private var selectedKey: String = "(None)"
     /// nil = mixed selection (some Loop, some One-Shot) or nothing selected.
     @State private var selectedIsOneShot: Bool?
+    /// Set by the Up/Down arrow navigation: the row the Files list must
+    /// scroll into view. `scrollTick` changes on every request so scrolling
+    /// fires even when the target id is the same as last time.
+    @State private var scrollTargetID: UUID?
+    @State private var scrollTick = 0
     @State private var selectedCategory: String?
     @State private var selectedSubcategory: String?
     @State private var selectedDescriptors: Set<String> = []
@@ -296,25 +325,29 @@ struct AppleLoopEditorView: View {
 
     /// The sidebar's width with an empty or short file list, AT `uiScale
     /// == 1.0` — same visual size the list had before the Name column
-    /// existed as a dynamically-sized thing: room for the Type/BPM/Changes
-    /// columns plus roughly the same Name space the fixed 280pt sidebar
-    /// used to give. Actual on-screen base width is this times `uiScale`.
-    private static let baseSidebarWidth: CGFloat = 328
+    /// existed as a dynamically-sized thing: room for the Type/Midi/BPM/
+    /// Mod columns plus roughly the same Name space the fixed 280pt
+    /// sidebar used to give (328 before the 46pt Midi column + its 8pt gap
+    /// were added, hence 382). Actual on-screen base width is this times
+    /// `uiScale`.
+    private static let baseSidebarWidth: CGFloat = 382
 
     /// Everything in a row *besides* the Name text itself, AT `uiScale ==
-    /// 1.0`: the playing icon's reserved slot, the BPM/Type/Changes
-    /// columns, the HStack's own inter-item spacing, the row's horizontal
+    /// 1.0`: the playing icon's reserved slot, the Type/Midi/BPM/Mod
+    /// columns, the HStack's own inter-item spacing (5 gaps x 8), the row's horizontal
     /// padding, and the sidebar's own horizontal padding. Kept in one place
     /// so the Name-measurement math below and the column `.frame(width:)`s
     /// in the body can't drift apart. Actual chrome width is this times
     /// `uiScale`, matching every one of those frames being written as
     /// `<value> * uiScale`.
-    private static let sidebarChromeWidth: CGFloat = 16 + 42 + 46 + 60 + 32 + 12 + 30
+    private static let sidebarChromeWidth: CGFloat = 16 + 42 + 46 + 46 + 60 + 40 + 12 + 30
 
     /// The right panel's own width at `uiScale == 1.0` — everything the
     /// old fixed `998` minimum window width meant besides the sidebar's
-    /// `baseSidebarWidth` and the hairline `Divider()` between them.
-    private static let rightPanelBaseWidth: CGFloat = 998 - baseSidebarWidth - 1
+    /// (then 328pt) width and the hairline `Divider()` between them. Kept as
+    /// a constant so widening the sidebar for a new column widens the
+    /// window instead of squeezing the editor panel.
+    private static let rightPanelBaseWidth: CGFloat = 998 - 328 - 1
 
     /// The window's height at `uiScale == 1.0` — what the old fixed `650`
     /// meant before the View menu's size presets existed.
@@ -421,7 +454,7 @@ struct AppleLoopEditorView: View {
     /// `files` in the order the Files list actually shows them: unchanged
     /// (order added) until a column header is clicked, then sorted by that
     /// column exactly like Finder — Name/Type alphabetically, BPM
-    /// numerically (a One-Shot's "000" sorts as 0), Changes groups changed
+    /// numerically (a One-Shot's "000" sorts as 0), Mod groups changed
     /// files together. This is a display-only view: `files` itself is
     /// never reordered, so row mutations elsewhere keep addressing `files`
     /// by `id`. Row order, arrow-key navigation and Shift-click range
@@ -441,10 +474,19 @@ struct AppleLoopEditorView: View {
                     ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
                     : $0.fileExtension < $1.fileExtension
             }
+        case .midi:
+            // Loops WITH embedded MIDI first on the first click (that's
+            // what someone clicking this header is looking for), name as
+            // the tiebreaker like every other column.
+            ascending = files.sorted {
+                $0.hasMidi == $1.hasMidi
+                    ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                    : ($0.hasMidi && !$1.hasMidi)
+            }
         case .bpm:
             ascending = files.sorted {
-                let lhs = $0.tempoBPM ?? 0
-                let rhs = $1.tempoBPM ?? 0
+                let lhs = $0.effectiveBPM ?? 0
+                let rhs = $1.effectiveBPM ?? 0
                 return lhs == rhs
                     ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
                     : lhs < rhs
@@ -460,7 +502,7 @@ struct AppleLoopEditorView: View {
     }
 
     /// Whether at least one loaded file has an unsaved change — the
-    /// "Changes" column header only sorts while this is true, since
+    /// "Mod" column header only sorts while this is true, since
     /// sorting on an all-unchanged column has nothing meaningful to do.
     private var hasAnyChanges: Bool {
         files.contains { $0.hasChanges }
@@ -477,6 +519,33 @@ struct AppleLoopEditorView: View {
         }
     }
 
+    /// The "Midi" column header, sortable like Type/BPM/Mod. Kept out of
+    /// `body` on purpose: that view builder is already close to the
+    /// compiler's type-checking limit, and inlining this pushed it over.
+    private var midiColumnHeader: some View {
+        Button(action: { toggleSort(.midi) }) {
+            HStack(spacing: 3 * uiScale) {
+                Text("Midi")
+                sortIndicator(for: .midi)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Whether the loop contains an embedded MIDI performance")
+        .frame(width: 46 * uiScale, alignment: .center)
+    }
+
+    /// ✓ when the loop carries an embedded MIDI performance, ✗ when it
+    /// doesn't (audio only). Read-only, like BPM. Also kept out of `body`
+    /// for the same type-checking reason as `midiColumnHeader`.
+    private func midiCell(for audioFile: AudioFile) -> some View {
+        Text(audioFile.hasMidi ? "✓" : "✗")
+            .font(.system(size: 12 * uiScale, weight: .semibold))
+            .foregroundColor(Self.vintageYellow.opacity(audioFile.hasMidi ? 1 : 0.4))
+            .frame(width: 46 * uiScale, alignment: .center)
+    }
+
     /// Clicking a column header sorts the Files list by that column: a
     /// first click sorts ascending, clicking the same header again reverses
     /// to descending, clicking a different header switches to that column
@@ -491,180 +560,211 @@ struct AppleLoopEditorView: View {
         }
     }
 
+    /// One row of the Files list. Pulled out of `body` (with the header and
+    /// the sidebar itself) so the Swift type-checker never has to solve the
+    /// whole window layout as a single expression.
+    private func fileRow(for audioFile: AudioFile) -> some View {
+        Button(action: { handleRowClick(audioFile.id) }) {
+            HStack {
+                playingIndicator(for: audioFile, isSelected: selectedFileIDs.contains(audioFile.id))
+
+                Text(audioFile.displayName)
+                    .font(.system(size: 13 * uiScale))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // The extension, shown here instead of as
+                // part of the name above (which is always
+                // displayed without one).
+                Text(audioFile.fileExtension)
+                    .font(.system(size: 10 * uiScale, design: .monospaced))
+                    .foregroundColor(Self.vintageYellow)
+                    .frame(width: 46 * uiScale, alignment: .center)
+
+                midiCell(for: audioFile)
+
+                // Indicative only — read from the tagged
+                // beat count + the audio's real duration,
+                // never edited or written back. "000" for
+                // One-Shots (no beat count to derive from).
+                Text(audioFile.tempoLabel)
+                    .font(.system(size: 11 * uiScale, design: .monospaced))
+                    .foregroundColor(Self.vintageYellow)
+                    .frame(width: 42 * uiScale, alignment: .trailing)
+
+                Text(audioFile.hasChanges ? "•" : "")
+                    .font(.system(size: 20 * uiScale))
+                    .foregroundColor(Self.logoRed)
+                    .frame(width: 60 * uiScale, alignment: .center)
+            }
+            .padding(.horizontal, 6 * uiScale)
+            .padding(.vertical, 4 * uiScale)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selectedFileIDs.contains(audioFile.id) ? Color.accentColor : Color.clear)
+            .cornerRadius(4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The Files list's column headers (Name / Type / Midi / BPM / Mod).
+    private var filesListHeader: some View {
+        HStack {
+            Button(action: { toggleSort(.name) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Name")
+                    sortIndicator(for: .name)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: { toggleSort(.type) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Type")
+                    sortIndicator(for: .type)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 46 * uiScale, alignment: .center)
+
+            midiColumnHeader
+
+            Button(action: { toggleSort(.bpm) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("BPM")
+                    sortIndicator(for: .bpm)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 42 * uiScale, alignment: .trailing)
+
+            Button(action: { toggleSort(.changes) }) {
+                HStack(spacing: 3 * uiScale) {
+                    Text("Mod")
+                    sortIndicator(for: .changes)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasAnyChanges)
+            .opacity(hasAnyChanges ? 1 : 0.4)
+            .frame(width: 60 * uiScale, alignment: .center)
+        }
+        .font(.system(size: 11 * uiScale))
+        .foregroundColor(Self.vintageYellow)
+        .padding(.horizontal, 8 * uiScale)
+        .padding(.vertical, 4 * uiScale)
+        .background(Color.black.opacity(0.2))
+    }
+
+    /// The left-hand Files panel: buttons, column headers and the list.
+    private var filesSidebar: some View {
+        VStack(alignment: .leading, spacing: 12 * uiScale) {
+            Text("Files")
+                .font(.system(size: 13 * uiScale, weight: .semibold))
+                .foregroundColor(.white)
+
+            // Invisible button purely to install the Cmd+A shortcut —
+            // it has no visual presence but stays live as long as this
+            // view is on screen.
+            Button("") {
+                selectedFileIDs = Set(files.map { $0.id })
+                syncEditorSelection()
+            }
+            .keyboardShortcut("a", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+
+            HStack(spacing: 8 * uiScale) {
+                Button(action: addFiles) {
+                    Text("+ Add Files").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
+                }
+                Button(action: removeSelectedFiles) {
+                    Text("- Remove").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
+                }
+                .disabled(selectedFileIDs.isEmpty)
+            }
+            .controlSize(.small)
+
+            VStack(spacing: 0) {
+                filesListHeader
+
+                ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if files.isEmpty {
+                            // A totally empty ForEach leaves this VStack
+                            // with zero real content, which — even with
+                            // a `.background` painted behind it — was
+                            // found live on this Mac to leave the
+                            // ScrollView with no genuine hit-testable
+                            // area: dropping a file or folder here did
+                            // nothing, while the exact same drag worked
+                            // fine the moment the list held ≥1 row. This
+                            // placeholder guarantees real laid-out
+                            // content at all times, so the drop zone is
+                            // always actually there.
+                            VStack(spacing: 10 * uiScale) {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 40 * uiScale, weight: .regular))
+                                    .foregroundColor(Self.vintageYellow)
+                                Text("Drop files or folder here")
+                                    .font(.system(size: 12 * uiScale, weight: .semibold))
+                                    .foregroundColor(Self.vintageYellow)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 30 * uiScale)
+                        }
+                        ForEach(displayedFiles) { audioFile in
+                            fileRow(for: audioFile)
+                                .id(audioFile.id)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 200 * uiScale, alignment: .top)
+                    .id(changeTick)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.1))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isFileDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+                .contentShape(Rectangle())
+                .onDrop(of: [.fileURL], isTargeted: $isFileDropTargeted) { providers in
+                    handleDrop(providers: providers)
+                }
+                // Follows the Up/Down arrow keys: keeps the selected row in
+                // view in a long list (minimal scroll, no anchor).
+                .onChange(of: scrollTick) { _ in
+                    if let id = scrollTargetID {
+                        proxy.scrollTo(id)
+                    }
+                }
+                }
+            }
+        }
+        .padding(15 * uiScale)
+        .frame(width: sidebarWidth)
+        .background(Color.black.opacity(0.15))
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // -------------------------------------------------------------
             // 1. LEFT SIDEBAR (Files)
             // -------------------------------------------------------------
-            VStack(alignment: .leading, spacing: 12 * uiScale) {
-                Text("Files")
-                    .font(.system(size: 13 * uiScale, weight: .semibold))
-                    .foregroundColor(.white)
-
-                // Invisible button purely to install the Cmd+A shortcut —
-                // it has no visual presence but stays live as long as this
-                // view is on screen.
-                Button("") {
-                    selectedFileIDs = Set(files.map { $0.id })
-                    syncEditorSelection()
-                }
-                .keyboardShortcut("a", modifiers: .command)
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-
-                HStack(spacing: 8 * uiScale) {
-                    Button(action: addFiles) {
-                        Text("+ Add Files").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
-                    }
-                    Button(action: removeSelectedFiles) {
-                        Text("- Remove").font(.system(size: 11 * uiScale)).frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedFileIDs.isEmpty)
-                }
-                .controlSize(.small)
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Button(action: { toggleSort(.name) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Name")
-                                sortIndicator(for: .name)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button(action: { toggleSort(.type) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Type")
-                                sortIndicator(for: .type)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 46 * uiScale, alignment: .center)
-
-                        Button(action: { toggleSort(.bpm) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("BPM")
-                                sortIndicator(for: .bpm)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 42 * uiScale, alignment: .trailing)
-
-                        Button(action: { toggleSort(.changes) }) {
-                            HStack(spacing: 3 * uiScale) {
-                                Text("Changes")
-                                sortIndicator(for: .changes)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!hasAnyChanges)
-                        .opacity(hasAnyChanges ? 1 : 0.4)
-                        .frame(width: 60 * uiScale, alignment: .center)
-                    }
-                    .font(.system(size: 11 * uiScale))
-                    .foregroundColor(Self.vintageYellow)
-                    .padding(.horizontal, 8 * uiScale)
-                    .padding(.vertical, 4 * uiScale)
-                    .background(Color.black.opacity(0.2))
-
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            if files.isEmpty {
-                                // A totally empty ForEach leaves this VStack
-                                // with zero real content, which — even with
-                                // a `.background` painted behind it — was
-                                // found live on this Mac to leave the
-                                // ScrollView with no genuine hit-testable
-                                // area: dropping a file or folder here did
-                                // nothing, while the exact same drag worked
-                                // fine the moment the list held ≥1 row. This
-                                // placeholder guarantees real laid-out
-                                // content at all times, so the drop zone is
-                                // always actually there.
-                                VStack(spacing: 10 * uiScale) {
-                                    Image(systemName: "arrow.down.circle")
-                                        .font(.system(size: 40 * uiScale, weight: .regular))
-                                        .foregroundColor(Self.vintageYellow)
-                                    Text("Drop files or folder here")
-                                        .font(.system(size: 12 * uiScale, weight: .semibold))
-                                        .foregroundColor(Self.vintageYellow)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 30 * uiScale)
-                            }
-                            ForEach(displayedFiles) { audioFile in
-                                Button(action: { handleRowClick(audioFile.id) }) {
-                                    HStack {
-                                        playingIndicator(for: audioFile, isSelected: selectedFileIDs.contains(audioFile.id))
-
-                                        Text(audioFile.displayName)
-                                            .font(.system(size: 13 * uiScale))
-                                            .lineLimit(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                                        // The extension, shown here instead of as
-                                        // part of the name above (which is always
-                                        // displayed without one).
-                                        Text(audioFile.fileExtension)
-                                            .font(.system(size: 10 * uiScale, design: .monospaced))
-                                            .foregroundColor(Self.vintageYellow)
-                                            .frame(width: 46 * uiScale, alignment: .center)
-
-                                        // Indicative only — read from the tagged
-                                        // beat count + the audio's real duration,
-                                        // never edited or written back. "000" for
-                                        // One-Shots (no beat count to derive from).
-                                        Text(audioFile.tempoLabel)
-                                            .font(.system(size: 11 * uiScale, design: .monospaced))
-                                            .foregroundColor(Self.vintageYellow)
-                                            .frame(width: 42 * uiScale, alignment: .trailing)
-
-                                        Text(audioFile.hasChanges ? "•" : "")
-                                            .font(.system(size: 20 * uiScale))
-                                            .foregroundColor(Self.logoRed)
-                                            .frame(width: 60 * uiScale, alignment: .center)
-                                    }
-                                    .padding(.horizontal, 6 * uiScale)
-                                    .padding(.vertical, 4 * uiScale)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(selectedFileIDs.contains(audioFile.id) ? Color.accentColor : Color.clear)
-                                    .cornerRadius(4)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 200 * uiScale, alignment: .top)
-                        .id(changeTick)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(isFileDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
-                    )
-                    .contentShape(Rectangle())
-                    .onDrop(of: [.fileURL], isTargeted: $isFileDropTargeted) { providers in
-                        handleDrop(providers: providers)
-                    }
-                }
-            }
-            .padding(15 * uiScale)
-            .frame(width: sidebarWidth)
-            .background(Color.black.opacity(0.15))
+            filesSidebar
 
             Divider()
 
@@ -678,8 +778,9 @@ struct AppleLoopEditorView: View {
                             get: { selectedScale },
                             set: { setScale($0) }
                         )) {
-                            ForEach(displayOptions(scaleOptions, current: selectedScale), id: \.self) { Text($0) }
+                            ForEach(displayOptions(scaleOptions, current: selectedScale), id: \.self) { Text(AppleLoopKeyEncoding.scaleDisplayName($0)) }
                         }
+                        .disabled(selectedIsOneShot == true)
                         Picker("Genre:", selection: Binding(
                             get: { selectedGenre },
                             set: { setGenre($0) }
@@ -692,6 +793,7 @@ struct AppleLoopEditorView: View {
                         )) {
                             ForEach(displayOptions(keyOptions, current: selectedKey), id: \.self) { Text($0) }
                         }
+                        .disabled(selectedIsOneShot == true)
                     }
                     .font(.system(size: 13 * uiScale))
                     .pickerStyle(.menu)
@@ -741,7 +843,7 @@ struct AppleLoopEditorView: View {
                                 .font(.system(size: 12 * uiScale))
                         }
                     }
-                    .disabled(activeIndices.isEmpty || isAnalyzing)
+                    .disabled(activeIndices.isEmpty || isAnalyzing || selectedIsOneShot == true)
 
                     Text(analysisInfoText)
                         .font(.system(size: 10 * uiScale))
@@ -912,6 +1014,8 @@ struct AppleLoopEditorView: View {
         selectedFileIDs = [newID]
         selectionAnchorID = newID
         syncEditorSelection()
+        scrollTargetID = newID
+        scrollTick += 1
         return true
     }
 
@@ -1113,7 +1217,7 @@ struct AppleLoopEditorView: View {
         guard newValue != "(Multiple)" else { return }
         selectedScale = newValue
         let value = (newValue == "(None)") ? "" : newValue
-        for idx in activeIndices { files[idx].pendingMode = value }
+        for idx in activeIndices where !files[idx].pendingIsOneShot { files[idx].pendingMode = value }
         changeTick += 1
     }
 
@@ -1129,7 +1233,7 @@ struct AppleLoopEditorView: View {
         guard newValue != "(Multiple)" else { return }
         selectedKey = newValue
         let value = (newValue == "(None)") ? "" : newValue
-        for idx in activeIndices { files[idx].pendingKey = value }
+        for idx in activeIndices where !files[idx].pendingIsOneShot { files[idx].pendingKey = value }
         changeTick += 1
     }
 
@@ -1187,30 +1291,37 @@ struct AppleLoopEditorView: View {
     private func setIsOneShot(_ newValue: Bool) {
         for idx in activeIndices where !files[idx].file.tags.isOneShot {
             files[idx].pendingIsOneShot = newValue
+            // A One-Shot has no key and no scale (Logic greys both out), so
+            // converting clears them; going back to Loop before saving
+            // restores what the file has on disk.
+            files[idx].pendingKey = newValue ? "" : files[idx].file.tags.key
+            files[idx].pendingMode = newValue ? "" : files[idx].file.tags.mode
         }
-        let values = Set(activeIndices.map { files[$0].pendingIsOneShot })
-        selectedIsOneShot = values.count == 1 ? values.first : nil
+        loadEditorFieldsForMultiSelection()
         changeTick += 1
     }
 
+    /// Picking a category always wipes the subcategory of every selected
+    /// file: whatever subcategory a file carried (possibly different from
+    /// file to file in a multi-selection, or left over from another
+    /// category) no longer applies once the category is chosen explicitly.
+    /// A subcategory can then be picked again from the list on the right.
     private func setCategory(_ newValue: String) {
         selectedCategory = newValue
-        let applicable = AppleLoopVocabulary.subcategoriesAreApplicable(for: newValue)
         for idx in activeIndices {
             files[idx].pendingCategory = newValue
-            if !applicable {
-                files[idx].pendingSubcategory = ""
-            }
+            files[idx].pendingSubcategory = ""
         }
-        if !applicable {
-            selectedSubcategory = nil
-        }
+        selectedSubcategory = nil
         changeTick += 1
     }
 
     private func setSubcategory(_ newValue: String) {
         selectedSubcategory = newValue
-        for idx in activeIndices { files[idx].pendingSubcategory = newValue }
+        for idx in activeIndices {
+            files[idx].pendingSubcategory = newValue
+            files[idx].subcategoryTouched = true
+        }
         changeTick += 1
     }
 
@@ -1466,6 +1577,9 @@ struct AppleLoopEditorView: View {
 struct AboutView: View {
     private static let vintageYellow = Color(red: 0.78, green: 0.72, blue: 0.48).opacity(0.85)
     private static let logoRed = Color(red: 0.94, green: 0.58, blue: 0.47)
+    /// Read from the app bundle (MARKETING_VERSION) so this can't drift from
+    /// the real version again.
+    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
     private static let bandcampURL = URL(string: "https://kidcreme.bandcamp.com/")!
     private static let spotifyURL = URL(string: "https://open.spotify.com/artist/21LRoheW1z49N5d52wlQ5X?si=9KZEYBReTcawoRMW4Cb4GA")!
 
@@ -1476,7 +1590,7 @@ struct AboutView: View {
                 .foregroundColor(Self.vintageYellow)
 
             VStack(spacing: 4) {
-                Text("Version 1.0")
+                Text("Version \(Self.appVersion)")
                 Text("GPL-3.0")
                 Text("2026")
             }
