@@ -98,6 +98,8 @@ public enum AppleLoopVocabulary {
         "Vinyl": "Vinyl/Scratch",
         "Impacts": "Impacts & Crashes",
         "Sports": "Sports & Leisure",
+        "Stingers": "Motions & Transitions",
+        "Machines": "Mech/Tech",
     ]
 
     public static func storageName(forDisplaySubcategory display: String) -> String {
