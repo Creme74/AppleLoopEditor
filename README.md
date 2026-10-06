@@ -24,7 +24,7 @@ No Xcode needed: download the latest compiled build directly from the **[Release
 
 ## Build from source
 
-- macOS 13 or later
+- macOS 13 or later (tested on macOS 14)
 - Xcode 16 or later
 
 ```bash
