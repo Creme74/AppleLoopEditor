@@ -1577,6 +1577,9 @@ struct AppleLoopEditorView: View {
 struct AboutView: View {
     private static let vintageYellow = Color(red: 0.78, green: 0.72, blue: 0.48).opacity(0.85)
     private static let logoRed = Color(red: 0.94, green: 0.58, blue: 0.47)
+    /// Read from the app bundle (MARKETING_VERSION) so this can't drift from
+    /// the real version again.
+    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
     private static let bandcampURL = URL(string: "https://kidcreme.bandcamp.com/")!
     private static let spotifyURL = URL(string: "https://open.spotify.com/artist/21LRoheW1z49N5d52wlQ5X?si=9KZEYBReTcawoRMW4Cb4GA")!
 
@@ -1587,7 +1590,7 @@ struct AboutView: View {
                 .foregroundColor(Self.vintageYellow)
 
             VStack(spacing: 4) {
-                Text("Version 1.0")
+                Text("Version \(Self.appVersion)")
                 Text("GPL-3.0")
                 Text("2026")
             }
