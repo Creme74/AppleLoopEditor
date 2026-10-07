@@ -8,7 +8,7 @@ Apple Loop metadata editor — this app edits any **Apple Loop-specific metadata
 
 - Edit the **Scale**, **Genre**, **Key**, **Type** (Loop / One-Shot) tags
 - Full **Instrument Descriptors** editing (category, subcategory, and attributes such as Single/Ensemble, Clean/Distorted, Acoustic/Electric, etc.)
-- **Suggestive Key/Scale analysis**: suggests the 3 most likely keys with their probability, from the loop's audio and, for software-instrument loops, its embedded MIDI performance, using small models trained on Apple's own tagged loops (right key ~61% of the time on loops they never saw, ~70% when the loop has MIDI; right key in the top 3 ~86%). Click a suggestion to apply it. Purely indicative, never overwrites existing tags until you save
+- **Suggestive Key/Mode analysis** (one file at a time): suggests the 3 most likely keys with their probability, from the loop's audio and, when the loop carries one, its embedded MIDI performance. The models were trained on Apple's own tagged loops: on loops they never saw, the top suggestion matches Apple's key about 61% of the time (about 70% when the loop has MIDI), and the right key is among the 3 suggestions about 86% of the time. Click a suggestion to set Key and Scale. Purely indicative: nothing is written to the file until you save
 - **Batch** editing (multi-file selection)
 - Built-in audio playback/preview of the selected loop, using spacebar
 - Drag and drop of files or entire folders

@@ -1600,7 +1600,7 @@ struct AboutView: View {
     private static let logoRed = Color(red: 0.94, green: 0.58, blue: 0.47)
     /// Read from the app bundle (MARKETING_VERSION) so this can't drift from
     /// the real version again.
-    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
+    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2"
     private static let bandcampURL = URL(string: "https://kidcreme.bandcamp.com/")!
     private static let spotifyURL = URL(string: "https://open.spotify.com/artist/21LRoheW1z49N5d52wlQ5X?si=9KZEYBReTcawoRMW4Cb4GA")!
 
