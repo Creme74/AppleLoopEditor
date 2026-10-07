@@ -241,11 +241,10 @@ struct AppleLoopEditorView: View {
     /// `analyzeSelectedFilesKey()`) — disables the Analyze button and swaps
     /// its label so a second click can't start an overlapping run.
     @State private var isAnalyzing: Bool = false
-    /// Last `KeyModeAnalyzer` result per file, purely informational (see
-    /// `analysisInfoText`) — analysis never writes into
-    /// `pendingKey`/`pendingMode` itself; the user reads the suggestion here
-    /// and applies it by hand via the Key/Scale Pickers if they agree with
-    /// it, exactly like picking any other value.
+    /// Last `KeyModeAnalyzer` result per file (see `currentSuggestion`) —
+    /// analysis never writes into `pendingKey`/`pendingMode` itself; the
+    /// user applies a suggestion by clicking it (or via the Key/Scale
+    /// Pickers), exactly like picking any other value.
     @State private var keyModeAnalysisResults: [UUID: KeyModeSuggestion] = [:]
 
     // MARK: - Files list sorting (click a column header, Finder-style)
@@ -427,28 +426,38 @@ struct AppleLoopEditorView: View {
         return AppleLoopVocabulary.subcategoriesAreApplicable(for: cat)
     }
 
-    /// Text shown next to the Analyze button: the form's current Key/Mode
-    /// (exactly what the Scale/Key Pickers above show) next to the last
-    /// analysis suggestion for that same file, so the two can be compared
-    /// at a glance. Purely informational — reading this never changes
-    /// `pendingKey`/`pendingMode`; only picking a value from the Pickers
-    /// does that.
-    private var analysisInfoText: String {
-        guard let idx = selectedIndex else {
-            return activeIndices.count > 1
-                ? "\(activeIndices.count) files selected — Analyze, then select one to compare its suggestion."
-                : "Suggests Key/Mode from the loop's MIDI performance, or its audio if it has none."
-        }
-        let audioFile = files[idx]
+    /// The selected file's last analysis result, shown as clickable chips
+    /// next to the Analyze button. Analysis works on one file at a time, so
+    /// this is `nil` whenever 0 or 2+ files are selected.
+    private var currentSuggestion: KeyModeSuggestion? {
+        guard let idx = selectedIndex else { return nil }
+        return keyModeAnalysisResults[files[idx].id]
+    }
 
-        guard let suggestion = keyModeAnalysisResults[audioFile.id] else {
-            return "Click Analyze for a suggestion."
+    /// Shown next to the Analyze button while there is no suggestion yet.
+    private var analysisInfoText: String {
+        if selectedIndex != nil { return "Click Analyze for a suggestion." }
+        if activeIndices.count > 1 { return "Select a single file to analyze its Key/Scale." }
+        return "Suggests Key/Scale from the loop's audio."
+    }
+
+    /// One clickable suggestion: sets Key and Scale for the selected
+    /// file(s), exactly like picking both values from the menus above.
+    private func suggestionChip(_ candidate: KeyCandidate, primary: Bool) -> some View {
+        Button(action: { applySuggestion(candidate) }) {
+            Text("\(candidate.key) \(candidate.mode) \(Int((candidate.probability * 100).rounded()))%")
+                .font(.system(size: 11 * uiScale, weight: primary ? .bold : .regular))
+                .foregroundColor(Self.vintageYellow)
+                .padding(.horizontal, 6 * uiScale)
+                .padding(.vertical, 2 * uiScale)
+                .background(
+                    RoundedRectangle(cornerRadius: 4 * uiScale)
+                        .fill(Color.white.opacity(primary ? 0.16 : 0.07))
+                )
         }
-        guard !suggestion.key.isEmpty, !suggestion.mode.isEmpty else {
-            return "Suggestion: couldn't determine a key."
-        }
-        let sourceLabel = suggestion.source == .midiChunk ? "MIDI" : "audio"
-        return "Suggestion (\(sourceLabel)): \(suggestion.key) \(suggestion.mode)."
+        .buttonStyle(.plain)
+        .help("Set Key to \(candidate.key) and Scale to \(candidate.mode)")
+        .disabled(activeIndices.isEmpty || selectedIsOneShot == true)
     }
 
     /// `files` in the order the Files list actually shows them: unchanged
@@ -822,16 +831,12 @@ struct AppleLoopEditorView: View {
                         .frame(width: 240 * uiScale)
                 }
 
-                // Suggestive Key/Mode analysis: reads the loop's own
-                // embedded MIDI performance if it has one, otherwise
-                // estimates from the audio (see KeyModeAnalyzer). Purely
-                // informational — the result is only ever shown as text
-                // here, next to the Analyze button (the current Key/Mode is
-                // already visible in the Scale/Key Pickers above, so it
-                // isn't repeated); it never writes into
-                // `pendingKey`/`pendingMode` itself. Applying a suggestion
-                // is done by hand via the Scale/Key Pickers above, exactly
-                // like picking any other value.
+                // Suggestive Key/Scale analysis from the loop's audio (see
+                // KeyModeAnalyzer / LearnedKeyDetector): the best 3 keys
+                // with their probabilities, as clickable chips. Nothing is
+                // applied until the user clicks one (or picks from the
+                // Scale/Key menus above), and nothing reaches the file
+                // before Save.
                 HStack(spacing: 8 * uiScale) {
                     Button(action: analyzeSelectedFilesKey) {
                         HStack(spacing: 6 * uiScale) {
@@ -843,11 +848,26 @@ struct AppleLoopEditorView: View {
                                 .font(.system(size: 12 * uiScale))
                         }
                     }
-                    .disabled(activeIndices.isEmpty || isAnalyzing || selectedIsOneShot == true)
+                    .fixedSize()
+                    .disabled(selectedIndex == nil || isAnalyzing || selectedIsOneShot == true)
 
-                    Text(analysisInfoText)
-                        .font(.system(size: 10 * uiScale))
-                        .foregroundColor(Self.vintageYellow)
+                    if let suggestion = currentSuggestion {
+                        Text("Suggestion:")
+                            .font(.system(size: 10 * uiScale))
+                            .foregroundColor(Self.vintageYellow)
+                        ForEach(Array(suggestion.candidates.prefix(3).enumerated()), id: \.offset) { item in
+                            suggestionChip(item.element, primary: item.offset == 0)
+                        }
+                        if suggestion.isUncertain {
+                            Text("(low confidence)")
+                                .font(.system(size: 10 * uiScale))
+                                .foregroundColor(Self.vintageYellow.opacity(0.7))
+                        }
+                    } else {
+                        Text(analysisInfoText)
+                            .font(.system(size: 10 * uiScale))
+                            .foregroundColor(Self.vintageYellow)
+                    }
                 }
                 // Lines the button up with the Scale/Genre/Key *dropdowns*
                 // themselves rather than their labels — this offset is the
@@ -1237,28 +1257,29 @@ struct AppleLoopEditorView: View {
         changeTick += 1
     }
 
-    /// Runs `KeyModeAnalyzer` for every selected file in the background
-    /// (file I/O + FFT can take a moment, so this must never block the main
-    /// thread), then stores each result in `keyModeAnalysisResults` — purely
-    /// informational, shown as text next to the button (`analysisInfoText`).
-    /// Never touches `pendingKey`/`pendingMode`: applying a suggestion is
-    /// always a deliberate Picker click, not something Analyze does for you.
+    /// Applies a clicked suggestion to the selected file(s): the same as
+    /// picking its Key and then its Scale from the menus (One-Shots are
+    /// skipped there, as for any Key/Scale edit).
+    private func applySuggestion(_ candidate: KeyCandidate) {
+        setKey(candidate.key)
+        setScale(candidate.mode)
+    }
+
+    /// Runs `KeyModeAnalyzer` on the single selected file in the background
+    /// (decoding + FFT take a moment, so this must never block the main
+    /// thread), then stores the result in `keyModeAnalysisResults`. Never
+    /// touches `pendingKey`/`pendingMode`: applying a suggestion is always a
+    /// deliberate click. One file at a time only — the button is disabled
+    /// for a multi-selection.
     private func analyzeSelectedFilesKey() {
-        guard !activeIndices.isEmpty, !isAnalyzing else { return }
+        guard let idx = selectedIndex, !isAnalyzing else { return }
         isAnalyzing = true
-        let targets = activeIndices.map { (id: files[$0].id, url: files[$0].file.url) }
+        let target = (id: files[idx].id, url: files[idx].file.url)
 
         Task.detached(priority: .userInitiated) {
-            var results: [UUID: Result<KeyModeSuggestion, Error>] = [:]
-            for target in targets {
-                do {
-                    results[target.id] = .success(try KeyModeAnalyzer.analyze(url: target.url))
-                } catch {
-                    results[target.id] = .failure(error)
-                }
-            }
+            let outcome = Result { try KeyModeAnalyzer.analyze(url: target.url) }
             await MainActor.run {
-                storeAnalysisResults(results, targets: targets)
+                storeAnalysisResults([target.id: outcome], targets: [target])
             }
         }
     }
