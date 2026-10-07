@@ -852,7 +852,7 @@ struct AppleLoopEditorView: View {
                     .disabled(selectedIndex == nil || isAnalyzing || selectedIsOneShot == true)
 
                     if let suggestion = currentSuggestion {
-                        Text("Suggestion:")
+                        Text(suggestion.usesMidi ? "Suggestion (audio + MIDI):" : "Suggestion (audio):")
                             .font(.system(size: 10 * uiScale))
                             .foregroundColor(Self.vintageYellow)
                         ForEach(Array(suggestion.candidates.prefix(3).enumerated()), id: \.offset) { item in

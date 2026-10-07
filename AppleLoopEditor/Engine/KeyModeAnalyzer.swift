@@ -12,6 +12,9 @@ public struct KeyModeSuggestion {
     public let candidates: [KeyCandidate]
     /// The model's 24 log-probabilities (index t = t Major, 12 + t = t Minor).
     public let logProbabilities: [Double]
+    /// True when the loop's embedded MIDI performance was combined with its
+    /// audio (software-instrument loops); false for audio only.
+    public let usesMidi: Bool
 
     public var best: KeyCandidate { candidates[0] }
     /// One of `AppleLoopKeyEncoding.noteNames`.
@@ -24,17 +27,36 @@ public struct KeyModeSuggestion {
     /// Apple's loops (and drums land here) — shown as "low confidence".
     public var isUncertain: Bool { confidence < 0.3 }
 
-    init(logProbabilities: [Double]) {
+    init(logProbabilities: [Double], usesMidi: Bool = false) {
         self.logProbabilities = logProbabilities
+        self.usesMidi = usesMidi
         candidates = LearnedKeyDetector.rankedCandidates(logProbabilities)
     }
 }
 
-/// Suggests a Key + Mode for a loop from its audio, with the detector
-/// learned from Apple's own tagged loops (see `LearnedKeyDetector`). Purely
+/// Suggests a Key + Mode for a loop from its audio (`LearnedKeyDetector`)
+/// and, when the loop carries one, its embedded MIDI performance
+/// (`MidiKeyDetector`) — both learned from Apple's own tagged loops. Purely
 /// suggestive — this never touches the file itself.
 public enum KeyModeAnalyzer {
     public static func analyze(url: URL) throws -> KeyModeSuggestion {
-        KeyModeSuggestion(logProbabilities: try LearnedKeyDetector.logProbabilities(forFileAt: url))
+        let midi = MidiKeyDetector.logProbabilities(forFileAt: url)
+        let audio: [Double]
+        do {
+            audio = try LearnedKeyDetector.logProbabilities(forFileAt: url)
+        } catch {
+            // Silent or unreadable audio: the MIDI performance alone still says something.
+            guard let midi else { throw error }
+            return KeyModeSuggestion(logProbabilities: midi, usesMidi: true)
+        }
+        guard let midi else { return KeyModeSuggestion(logProbabilities: audio) }
+        // Average of the two log-distributions (a geometric mean, renormalized):
+        // on Apple's loops this keeps the shown percentage in line with how
+        // often the top pick is right (mean confidence 57 % vs 60 % right),
+        // where simply adding them would overstate it (78 %).
+        let averaged = zip(audio, midi).map { ($0 + $1) / 2 }
+        let m = averaged.max()!
+        let logTotal = log(averaged.map { exp($0 - m) }.reduce(0, +)) + m
+        return KeyModeSuggestion(logProbabilities: averaged.map { $0 - logTotal }, usesMidi: true)
     }
 }
