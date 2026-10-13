@@ -16,7 +16,7 @@ Apple Loop metadata editor — this app edits any **Apple Loop-specific metadata
 
 ## Download
 
-No Xcode needed: download the latest compiled build directly from the **[Releases](https://github.com/Creme74/AppleLoopEditor/releases/latest)** page, unzip it, and launch `AppleLoopEditor.app`.
+No Xcode needed: download the latest compiled build directly from the **[Releases](https://github.com/Creme74/AppleLoopEditor/releases/latest)** page, unzip it, and launch `AppleLoopEditor.app`. Since v1.3 the app is universal: it runs on **Intel and Apple Silicon** Macs with macOS 13 or later.
 
 > **First launch:** since the app isn't signed with a paid Apple Developer account, macOS (Gatekeeper) will show a warning the first time you open it. This is only needed once.
 > - **macOS Sonoma (14) and earlier:** right-click (or Ctrl-click) `AppleLoopEditor.app` → **Open**, then confirm.
@@ -33,7 +33,7 @@ cd AppleLoopEditor
 open AppleLoopEditor.xcodeproj
 ```
 
-Then Run (⌘R) in Xcode.
+Then Run (⌘R) in Xcode. Run builds for your Mac only; for a universal app (Intel + Apple Silicon) like the releases, use **Product → Archive**.
 
 ## License
 
