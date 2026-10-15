@@ -1213,7 +1213,7 @@ struct AppleLoopEditorView: View {
         } catch {
             audioPlayer = nil
             playingFileID = nil
-            errorMessage = "Impossible de lire \(audioFile.name) :\n\(error.localizedDescription)"
+            errorMessage = "Couldn't play \(audioFile.name):\n\(error.localizedDescription)"
         }
     }
 
@@ -1296,14 +1296,14 @@ struct AppleLoopEditorView: View {
                 keyModeAnalysisResults[target.id] = suggestion
             case .failure(let error):
                 let name = files.first(where: { $0.id == target.id })?.name ?? target.url.lastPathComponent
-                failures.append("\(name) : \(error.localizedDescription)")
+                failures.append("\(name): \(error.localizedDescription)")
             case .none:
                 break
             }
         }
         isAnalyzing = false
         if !failures.isEmpty {
-            errorMessage = "Analyse impossible pour :\n\(failures.joined(separator: "\n"))"
+            errorMessage = "Couldn't analyze:\n\(failures.joined(separator: "\n"))"
         }
     }
 
@@ -1475,7 +1475,7 @@ struct AppleLoopEditorView: View {
             let loaded = try AppleLoopFile(url: url)
             files.append(AudioFile(file: loaded))
         } catch {
-            errorMessage = "Impossible de lire \(url.lastPathComponent) :\n\(error.localizedDescription)"
+            errorMessage = "Couldn't read \(url.lastPathComponent):\n\(error.localizedDescription)"
         }
     }
 
@@ -1558,13 +1558,13 @@ struct AppleLoopEditorView: View {
                 try files[idx].file.apply(edit)
                 files[idx].resetPendingToCurrentTags()
             } catch {
-                failures.append("\(files[idx].name) : \(error.localizedDescription)")
+                failures.append("\(files[idx].name): \(error.localizedDescription)")
             }
         }
         refreshEditorFieldsAfterBulkChange()
         changeTick += 1
         if !failures.isEmpty {
-            errorMessage = "Impossible d'enregistrer :\n\(failures.joined(separator: "\n"))"
+            errorMessage = "Couldn't save:\n\(failures.joined(separator: "\n"))"
         }
     }
 
@@ -1600,7 +1600,7 @@ struct AboutView: View {
     private static let logoRed = Color(red: 0.94, green: 0.58, blue: 0.47)
     /// Read from the app bundle (MARKETING_VERSION) so this can't drift from
     /// the real version again.
-    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3"
+    private static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.4"
     private static let bandcampURL = URL(string: "https://kidcreme.bandcamp.com/")!
     private static let spotifyURL = URL(string: "https://open.spotify.com/artist/21LRoheW1z49N5d52wlQ5X?si=9KZEYBReTcawoRMW4Cb4GA")!
 

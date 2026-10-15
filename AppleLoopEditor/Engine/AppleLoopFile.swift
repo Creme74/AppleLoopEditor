@@ -154,10 +154,13 @@ public final class AppleLoopFile {
     /// same volume, then renames it into place), so an interruption mid-write
     /// (crash, power loss) can never leave a truncated/corrupted loop at
     /// `url` -- the original stays intact until the new data is fully on
-    /// disk. When `keepBackup` is true (the default), a `.bak` copy of the
-    /// file as it was *before* this edit is written alongside it first, as
-    /// a best-effort safety net; a backup failure never blocks the save.
-    public func apply(_ edit: AppleLoopTagEdit, keepBackup: Bool = true) throws {
+    /// disk. With `keepBackup`, a `.bak` copy of the file as it was *before*
+    /// this edit is written alongside it first (a backup failure never
+    /// blocks the save). Off by default, and the app never asks for it: the
+    /// atomic write already protects the file, and the copies piled up next
+    /// to the loops ("Kick.caf.bak"), but only where the sandbox let the app
+    /// write beside the file (a dropped folder), so it wasn't even reliable.
+    public func apply(_ edit: AppleLoopTagEdit, keepBackup: Bool = false) throws {
         guard !edit.isEmpty else { return }
         let newData = try dataApplying(edit)
 

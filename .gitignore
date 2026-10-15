@@ -24,3 +24,7 @@ DerivedData/
 # Build products created during this session's work
 dist/
 Backups/
+
+# Python
+__pycache__/
+*.pyc
